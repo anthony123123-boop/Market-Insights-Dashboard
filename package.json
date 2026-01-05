@@ -16,7 +16,6 @@
     "next": "14.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "yahoo-finance2": "^2.11.3",
     "zod": "^3.23.8",
     "lucide-react": "^0.378.0",
     "recharts": "^2.12.7",

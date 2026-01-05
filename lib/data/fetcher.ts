@@ -1,8 +1,9 @@
-import { fetchIndicators, fetchHistorical } from './yahoo';
-import { fetchEURUSD, isAlphaVantageAvailable } from './alphavantage';
-import { getBaseTickers, isDerivedTicker, getDerivedComponents, DERIVED_TICKERS } from './symbols';
+import { fetchAVEquityIndicator, fetchFXIndicator, isAlphaVantageAvailable, AV_FX_PAIRS } from './alphavantage';
+import { fetchStooqIndicator, isStooqTicker } from './stooq';
+import { fetchFredIndicator, fetchYieldSpread, isFredTicker, isFredAvailable } from './fred';
+import { getBaseTickers, isDerivedTicker, getDerivedComponents, DERIVED_TICKERS, getTickerSource, PROXY_MAPPINGS } from './symbols';
 import { cache, CACHE_TTL, generateCacheKey } from './cache';
-import type { Indicator, Capability, CacheState, Warning } from '../types';
+import type { Indicator, Capability, CacheState, Warning, DataSource } from '../types';
 import { getETTimestamp } from '../time';
 import { getDisplayName } from '../format';
 
@@ -15,6 +16,141 @@ interface FetchResult {
   pulledAtET: string;
   lastUpdatedET: string;
   dataAsOfET: string;
+}
+
+/**
+ * Fetch a single indicator from the appropriate source
+ */
+async function fetchIndicatorBySource(ticker: string): Promise<{
+  indicator: Indicator;
+  capability: Capability;
+}> {
+  const source = getTickerSource(ticker);
+
+  switch (source) {
+    case 'STOOQ':
+      return fetchStooqIndicator(ticker);
+
+    case 'FRED':
+      return fetchFredIndicator(ticker);
+
+    case 'AV':
+      // Check if it's an FX pair
+      if (ticker in AV_FX_PAIRS) {
+        const pair = AV_FX_PAIRS[ticker];
+        return fetchFXIndicator(ticker, pair.from, pair.to);
+      }
+
+      // Check for DXY which needs special handling (use UUP as proxy)
+      if (ticker === 'DXY') {
+        // DXY doesn't have a direct AV symbol, use UUP as proxy
+        const result = await fetchAVEquityIndicator('UUP');
+        if (result.capability.ok) {
+          return {
+            indicator: {
+              ...result.indicator,
+              displayName: 'USD Index (UUP proxy)',
+            },
+            capability: {
+              ...result.capability,
+              isProxy: true,
+            },
+          };
+        }
+        return result;
+      }
+
+      // Regular equity/ETF
+      return fetchAVEquityIndicator(ticker);
+
+    default:
+      return {
+        indicator: {
+          displayName: ticker,
+          session: 'NA',
+          source: 'PROXY' as DataSource,
+        },
+        capability: {
+          ok: false,
+          reason: `Unknown source for ${ticker}`,
+        },
+      };
+  }
+}
+
+/**
+ * Fetch all base indicators in parallel (with rate limiting awareness)
+ */
+async function fetchAllBaseIndicators(tickers: string[]): Promise<{
+  indicators: Record<string, Indicator>;
+  capabilities: Record<string, Capability>;
+  warnings: Warning[];
+}> {
+  const indicators: Record<string, Indicator> = {};
+  const capabilities: Record<string, Capability> = {};
+  const warnings: Warning[] = [];
+
+  // Group tickers by source for efficient fetching
+  const bySource: Record<string, string[]> = {
+    AV: [],
+    STOOQ: [],
+    FRED: [],
+  };
+
+  for (const ticker of tickers) {
+    const source = getTickerSource(ticker);
+    if (source !== 'PROXY') {
+      bySource[source] = bySource[source] || [];
+      bySource[source].push(ticker);
+    }
+  }
+
+  // Check data source availability
+  if (!isAlphaVantageAvailable() && bySource.AV.length > 0) {
+    warnings.push({
+      code: 'AV_UNAVAILABLE',
+      message: 'Alpha Vantage API key not configured - ETF/equity data unavailable',
+    });
+  }
+
+  if (!isFredAvailable() && bySource.FRED.length > 0) {
+    warnings.push({
+      code: 'FRED_UNAVAILABLE',
+      message: 'FRED API key not configured - Treasury yield data unavailable',
+    });
+  }
+
+  // Fetch all indicators in parallel
+  // Note: We batch requests to avoid overwhelming rate limits
+  const results = await Promise.all(
+    tickers.map(async (ticker) => {
+      try {
+        const result = await fetchIndicatorBySource(ticker);
+        return { ticker, ...result };
+      } catch (error) {
+        return {
+          ticker,
+          indicator: {
+            displayName: ticker,
+            session: 'NA' as const,
+            source: getTickerSource(ticker) as DataSource,
+          },
+          capability: {
+            ok: false,
+            reason: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            sourceUsed: getTickerSource(ticker) as DataSource,
+          },
+        };
+      }
+    })
+  );
+
+  for (const { ticker, indicator, capability } of results) {
+    indicators[ticker] = indicator;
+    capabilities[ticker] = capability;
+  }
+
+  return { indicators, capabilities, warnings };
 }
 
 /**
@@ -33,6 +169,12 @@ function computeDerivedIndicators(
   const warnings: Warning[] = [];
 
   for (const derivedTicker of DERIVED_TICKERS) {
+    // Special handling for YIELD_10Y_2Y - use FRED's dedicated endpoint
+    if (derivedTicker === 'YIELD_10Y_2Y' && isFredAvailable()) {
+      // This will be computed separately
+      continue;
+    }
+
     const components = getDerivedComponents(derivedTicker);
     const indicatorA = baseIndicators[components.a];
     const indicatorB = baseIndicators[components.b];
@@ -52,6 +194,7 @@ function computeDerivedIndicators(
       capabilities[derivedTicker] = {
         ok: false,
         reason: `Missing components: ${!indicatorA?.price ? components.a : ''} ${!indicatorB?.price ? components.b : ''}`.trim(),
+        sourceUsed: 'PROXY',
       };
       warnings.push({
         code: 'DERIVED_MISSING',
@@ -80,8 +223,13 @@ function computeDerivedIndicators(
       changePct = previousClose !== 0 ? (change / Math.abs(previousClose)) * 100 : 0;
     }
 
+    // Add source attribution to derived indicators
+    const sourceA = indicatorA.source;
+    const sourceB = indicatorB.source;
+    const sourceSuffix = sourceA === sourceB ? `(${sourceA})` : `(${sourceA}/${sourceB})`;
+
     indicators[derivedTicker] = {
-      displayName: getDisplayName(derivedTicker),
+      displayName: `${getDisplayName(derivedTicker)} ${sourceSuffix}`,
       price,
       previousClose,
       change,
@@ -123,29 +271,30 @@ export async function fetchAllMarketData(settings?: {
     };
   }
 
-  // Fetch base indicators
+  // Fetch base indicators from all sources
   const baseTickers = getBaseTickers();
-  const { indicators: baseIndicators, capabilities: baseCapabilities } = await fetchIndicators(baseTickers);
+  const { indicators: baseIndicators, capabilities: baseCapabilities, warnings: baseWarnings } =
+    await fetchAllBaseIndicators(baseTickers);
 
-  const allWarnings: Warning[] = [];
-
-  // Try EURUSD from Alpha Vantage if Yahoo failed
-  if (!baseCapabilities['EURUSD']?.ok && isAlphaVantageAvailable()) {
-    try {
-      const { indicator, capability } = await fetchEURUSD();
-      baseIndicators['EURUSD'] = indicator;
-      baseCapabilities['EURUSD'] = capability;
-    } catch (error) {
-      allWarnings.push({
-        code: 'EURUSD_FALLBACK_FAILED',
-        message: 'Failed to fetch EURUSD from Alpha Vantage',
-      });
-    }
-  }
+  const allWarnings: Warning[] = [...baseWarnings];
 
   // Compute derived indicators
   const { indicators: derivedIndicators, capabilities: derivedCapabilities, warnings: derivedWarnings } =
     computeDerivedIndicators(baseIndicators, baseCapabilities);
+
+  // Fetch YIELD_10Y_2Y directly from FRED if available
+  if (isFredAvailable()) {
+    try {
+      const { indicator, capability } = await fetchYieldSpread();
+      derivedIndicators['YIELD_10Y_2Y'] = indicator;
+      derivedCapabilities['YIELD_10Y_2Y'] = capability;
+    } catch (error) {
+      allWarnings.push({
+        code: 'YIELD_SPREAD_FAILED',
+        message: 'Failed to fetch 10Y-2Y yield spread from FRED',
+      });
+    }
+  }
 
   // Merge all indicators
   const allIndicators: Record<string, Indicator> = {
@@ -189,26 +338,14 @@ export async function fetchAllMarketData(settings?: {
 }
 
 /**
- * Fetch historical data for multiple symbols
+ * Fetch historical data is not available with new sources
+ * Returns empty for now - historical analysis would need a different approach
  */
 export async function fetchHistoricalData(
   symbols: string[],
   lookbackDays: number = 365
 ): Promise<Record<string, Array<{ date: Date; close: number; volume: number }>>> {
-  const period1 = new Date();
-  period1.setDate(period1.getDate() - lookbackDays);
-
-  const results = await Promise.all(
-    symbols.map(async (symbol) => {
-      const data = await fetchHistorical(symbol, period1);
-      return { symbol, data };
-    })
-  );
-
-  const historical: Record<string, Array<{ date: Date; close: number; volume: number }>> = {};
-  for (const { symbol, data } of results) {
-    historical[symbol] = data;
-  }
-
-  return historical;
+  // Historical data not available from current sources
+  // Would need to implement using Alpha Vantage TIME_SERIES_DAILY or similar
+  return {};
 }

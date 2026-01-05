@@ -1,56 +1,75 @@
-import type { Capability } from '../types';
+import type { Capability, DataSource } from '../types';
 
 /**
- * Symbol resolution mapping - maps logical tickers to Yahoo Finance symbols
+ * Data source routing - maps each ticker to its primary data source
+ *
+ * Sources:
+ * - AV (Alpha Vantage): ETFs, equities, FX
+ * - STOOQ: VIX and volatility indices (free, no API key)
+ * - FRED: Treasury yields and economic data (free with API key)
+ * - PROXY: Derived/calculated indicators
  */
-export const SYMBOL_CANDIDATES: Record<string, string[]> = {
-  // Volatility
-  VIX: ['^VIX'],
-  VVIX: ['^VVIX'],
-  VIX9D: ['^VIX9D', 'VIX9D'],
-  VIX3M: ['^VIX3M', 'VIX3M'],
-  SKEW: ['^SKEW'],
-  MOVE: ['^MOVE', 'MOVE'],
 
-  // Yields/Rates
-  TNX: ['^TNX'],
-  IRX: ['^IRX'],
-  FVX: ['^FVX'],
-  TYX: ['^TYX'],
+export type TickerSource = 'AV' | 'STOOQ' | 'FRED' | 'PROXY';
 
-  // Currency
-  DXY: ['DX-Y.NYB', 'DX=F', '^DXY'],
-  EURUSD: ['EURUSD=X', 'EUR=X'],
-  USDJPY: ['USDJPY=X', 'JPY=X'],
+/**
+ * Source routing for each ticker
+ */
+export const TICKER_SOURCES: Record<string, TickerSource> = {
+  // Volatility indices - Stooq (free, no key)
+  VIX: 'STOOQ',
+  VVIX: 'STOOQ',
+  VIX9D: 'STOOQ',
+  VIX3M: 'STOOQ',
+  SKEW: 'STOOQ',
+  MOVE: 'STOOQ',
 
-  // ETFs (direct symbols)
-  SPY: ['SPY'],
-  QQQ: ['QQQ'],
-  IWM: ['IWM'],
-  RSP: ['RSP'],
-  HYG: ['HYG'],
-  LQD: ['LQD'],
-  TLT: ['TLT'],
-  SHY: ['SHY'],
-  UUP: ['UUP'],
-  FXY: ['FXY'],
-  GLD: ['GLD'],
-  SLV: ['SLV'],
-  USO: ['USO'],
-  DBA: ['DBA'],
+  // Treasury yields - FRED (free with key)
+  TNX: 'FRED',
+  IRX: 'FRED',
+  FVX: 'FRED',
+  TYX: 'FRED',
 
-  // Sector ETFs
-  XLK: ['XLK'],
-  XLF: ['XLF'],
-  XLI: ['XLI'],
-  XLE: ['XLE'],
-  XLV: ['XLV'],
-  XLP: ['XLP'],
-  XLU: ['XLU'],
-  XLRE: ['XLRE'],
-  XLY: ['XLY'],
-  XLC: ['XLC'],
+  // ETFs - Alpha Vantage
+  SPY: 'AV',
+  QQQ: 'AV',
+  IWM: 'AV',
+  RSP: 'AV',
+  HYG: 'AV',
+  LQD: 'AV',
+  TLT: 'AV',
+  SHY: 'AV',
+  UUP: 'AV',
+  FXY: 'AV',
+  GLD: 'AV',
+  SLV: 'AV',
+  USO: 'AV',
+  DBA: 'AV',
+
+  // Sector ETFs - Alpha Vantage
+  XLK: 'AV',
+  XLF: 'AV',
+  XLI: 'AV',
+  XLE: 'AV',
+  XLV: 'AV',
+  XLP: 'AV',
+  XLU: 'AV',
+  XLRE: 'AV',
+  XLY: 'AV',
+  XLC: 'AV',
+
+  // FX - Alpha Vantage
+  DXY: 'AV', // Will use UUP as proxy
+  EURUSD: 'AV',
 };
+
+/**
+ * Get the source for a ticker
+ */
+export function getTickerSource(ticker: string): TickerSource {
+  if (isDerivedTicker(ticker)) return 'PROXY';
+  return TICKER_SOURCES[ticker] || 'AV';
+}
 
 /**
  * Proxy mappings for when primary fails
@@ -60,7 +79,7 @@ export const PROXY_MAPPINGS: Record<string, { proxy: string; label: string }> = 
 };
 
 /**
- * Derived/calculated tickers
+ * Derived/calculated tickers (computed from other indicators)
  */
 export const DERIVED_TICKERS = [
   'VIX_VVIX_RATIO',
@@ -98,7 +117,7 @@ export function isDerivedTicker(ticker: string): ticker is DerivedTicker {
  */
 export function getAllTickers(): string[] {
   return [
-    ...Object.keys(SYMBOL_CANDIDATES),
+    ...Object.keys(TICKER_SOURCES),
     ...DERIVED_TICKERS,
   ];
 }
@@ -107,7 +126,16 @@ export function getAllTickers(): string[] {
  * Get base tickers (non-derived)
  */
 export function getBaseTickers(): string[] {
-  return Object.keys(SYMBOL_CANDIDATES);
+  return Object.keys(TICKER_SOURCES);
+}
+
+/**
+ * Get tickers by source
+ */
+export function getTickersBySource(source: TickerSource): string[] {
+  return Object.entries(TICKER_SOURCES)
+    .filter(([_, s]) => s === source)
+    .map(([ticker]) => ticker);
 }
 
 /**
@@ -119,7 +147,7 @@ export function createInitialCapabilities(): Record<string, Capability> {
   for (const ticker of getAllTickers()) {
     capabilities[ticker] = {
       ok: false,
-      triedSymbols: isDerivedTicker(ticker) ? undefined : SYMBOL_CANDIDATES[ticker] || [ticker],
+      sourceUsed: getTickerSource(ticker) as DataSource,
     };
   }
 
