@@ -2,7 +2,37 @@ import { cache, CACHE_TTL } from './cache';
 import type { Indicator, Capability, DataSource } from '../types';
 import { getETTimestamp } from '../time';
 
+/**
+ * Alpha Vantage - Primary data source for ETFs, equities, and FX
+ * Free tier: 25 requests/day (premium has higher limits)
+ * https://www.alphavantage.co/documentation/
+ */
+
 const AV_BASE_URL = 'https://www.alphavantage.co/query';
+
+/**
+ * ETF and equity symbols supported by Alpha Vantage
+ */
+export const AV_EQUITY_SYMBOLS: string[] = [
+  // Core ETFs
+  'SPY', 'QQQ', 'IWM', 'RSP',
+  // Credit ETFs
+  'HYG', 'LQD', 'TLT', 'SHY',
+  // USD/FX ETFs
+  'UUP', 'FXY',
+  // Commodities
+  'GLD', 'SLV', 'USO', 'DBA',
+  // Sector ETFs
+  'XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC',
+];
+
+/**
+ * FX pairs supported by Alpha Vantage
+ */
+export const AV_FX_PAIRS: Record<string, { from: string; to: string }> = {
+  EURUSD: { from: 'EUR', to: 'USD' },
+  DXY: { from: 'USD', to: 'EUR' }, // Inverse as proxy for DXY
+};
 
 interface AVFXDaily {
   'Meta Data': {
@@ -19,6 +49,21 @@ interface AVFXDaily {
   }>;
 }
 
+interface AVGlobalQuote {
+  'Global Quote': {
+    '01. symbol': string;
+    '02. open': string;
+    '03. high': string;
+    '04. low': string;
+    '05. price': string;
+    '06. volume': string;
+    '07. latest trading day': string;
+    '08. previous close': string;
+    '09. change': string;
+    '10. change percent': string;
+  };
+}
+
 /**
  * Get Alpha Vantage API key
  */
@@ -31,6 +76,177 @@ function getAPIKey(): string | null {
  */
 export function isAlphaVantageAvailable(): boolean {
   return !!getAPIKey();
+}
+
+/**
+ * Get all equity tickers supported by Alpha Vantage
+ */
+export function getAVEquityTickers(): string[] {
+  return AV_EQUITY_SYMBOLS;
+}
+
+/**
+ * Check if a ticker is an AV equity/ETF
+ */
+export function isAVEquityTicker(ticker: string): boolean {
+  return AV_EQUITY_SYMBOLS.includes(ticker);
+}
+
+/**
+ * Check if a ticker is an AV FX pair
+ */
+export function isAVFXTicker(ticker: string): boolean {
+  return ticker in AV_FX_PAIRS;
+}
+
+/**
+ * Fetch global quote (ETF/equity) from Alpha Vantage
+ */
+async function fetchGlobalQuoteRaw(symbol: string): Promise<{
+  price: number;
+  previousClose: number;
+  change: number;
+  changePct: number;
+  tradingDay: string;
+} | null> {
+  const apiKey = getAPIKey();
+  if (!apiKey) {
+    console.warn('Alpha Vantage API key not set');
+    return null;
+  }
+
+  const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
+
+  try {
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      console.warn(`Alpha Vantage request failed: ${response.status}`);
+      return null;
+    }
+
+    const data: AVGlobalQuote = await response.json();
+
+    // Check for rate limiting
+    if ((data as any).Note || (data as any).Information) {
+      console.warn('Alpha Vantage rate limited:', (data as any).Note || (data as any).Information);
+      return null;
+    }
+
+    // Check for error
+    if ((data as any)['Error Message']) {
+      console.warn('Alpha Vantage error:', (data as any)['Error Message']);
+      return null;
+    }
+
+    const quote = data['Global Quote'];
+    if (!quote || !quote['05. price']) {
+      console.warn(`Alpha Vantage no quote data for ${symbol}`);
+      return null;
+    }
+
+    const price = parseFloat(quote['05. price']);
+    const previousClose = parseFloat(quote['08. previous close']);
+
+    // Always recompute change from price and previousClose
+    const change = price - previousClose;
+    const changePct = previousClose !== 0 ? (change / previousClose) * 100 : 0;
+
+    return {
+      price,
+      previousClose,
+      change,
+      changePct,
+      tradingDay: quote['07. latest trading day'],
+    };
+  } catch (error) {
+    console.error(`Alpha Vantage fetch error for ${symbol}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Fetch equity/ETF indicator from Alpha Vantage
+ */
+export async function fetchAVEquityIndicator(symbol: string): Promise<{
+  indicator: Indicator;
+  capability: Capability;
+}> {
+  if (!isAlphaVantageAvailable()) {
+    return {
+      indicator: {
+        displayName: symbol,
+        session: 'NA',
+        source: 'AV' as DataSource,
+      },
+      capability: {
+        ok: false,
+        reason: 'Alpha Vantage API key not configured',
+        sourceUsed: 'AV' as DataSource,
+      },
+    };
+  }
+
+  const cacheKey = `av:quote:${symbol}`;
+
+  try {
+    const result = await cache.singleFlight(
+      cacheKey,
+      () => fetchGlobalQuoteRaw(symbol),
+      { ttlMs: CACHE_TTL.QUOTES }
+    );
+
+    const data = result.data;
+
+    if (!data) {
+      return {
+        indicator: {
+          displayName: symbol,
+          session: 'NA',
+          source: 'AV' as DataSource,
+        },
+        capability: {
+          ok: false,
+          resolvedSymbol: symbol,
+          reason: 'No data from Alpha Vantage',
+          sourceUsed: 'AV' as DataSource,
+        },
+      };
+    }
+
+    return {
+      indicator: {
+        displayName: `${symbol} (AV)`,
+        price: data.price,
+        previousClose: data.previousClose,
+        change: data.change,
+        changePct: data.changePct,
+        session: 'CLOSE',
+        asOfET: getETTimestamp(),
+        source: 'AV' as DataSource,
+      },
+      capability: {
+        ok: true,
+        resolvedSymbol: symbol,
+        sourceUsed: 'AV' as DataSource,
+      },
+    };
+  } catch (error) {
+    console.error(`Alpha Vantage fetch error for ${symbol}:`, error);
+    return {
+      indicator: {
+        displayName: symbol,
+        session: 'NA',
+        source: 'AV' as DataSource,
+      },
+      capability: {
+        ok: false,
+        resolvedSymbol: symbol,
+        reason: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        sourceUsed: 'AV' as DataSource,
+      },
+    };
+  }
 }
 
 /**
@@ -140,7 +356,7 @@ export async function fetchFXIndicator(
 
     return {
       indicator: {
-        displayName: logicalTicker,
+        displayName: `${logicalTicker} (AV)`,
         price,
         previousClose,
         change,

@@ -4,6 +4,7 @@
   "framework": "nextjs",
   "regions": ["iad1"],
   "env": {
-    "ALPHAVANTAGE_API_KEY": "@alphavantage-api-key"
+    "ALPHAVANTAGE_API_KEY": "@alphavantage-api-key",
+    "FRED_API_KEY": "@fred-api-key"
   }
 }

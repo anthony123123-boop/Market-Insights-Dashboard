@@ -6,13 +6,27 @@ A real-time market analysis dashboard that provides short, medium, and long-term
 
 ## Features
 
-- **Real-time Market Data**: Fetches live data from Yahoo Finance with Alpha Vantage fallback
+- **Real-time Market Data**: Multiple free data sources (Netlify/serverless safe)
 - **Multi-timeframe Analysis**: Short-term (1-5 days), Medium-term (2-6 weeks), Long-term (3-12 months)
 - **Sector Analysis**: Sector ETF attraction scores with visual bar chart
 - **Comprehensive Indicators**: VIX, credit spreads, yield curves, FX, and more
 - **Configurable Settings**: Adjust refresh intervals, weight presets, and display options
 - **Dark Theme**: Beautiful frosted glass UI with score-based color coding
 - **Mobile Responsive**: Works seamlessly on phone and desktop
+- **Source Attribution**: Each indicator shows its data source
+
+## Data Sources
+
+| Source | Data | API Key | Rate Limit |
+|--------|------|---------|------------|
+| **Alpha Vantage** | ETFs, Equities, FX | Required | 25/day (free) |
+| **Stooq** | VIX, Volatility Indices | Not required | No limit |
+| **FRED** | Treasury Yields, Yield Curve | Required | 120/minute |
+
+All sources are:
+- Free tier available
+- Netlify/Vercel/serverless compatible
+- Rate-limit resistant via caching
 
 ## Tech Stack
 
@@ -21,13 +35,14 @@ A real-time market analysis dashboard that provides short, medium, and long-term
 - **Styling**: Tailwind CSS
 - **Icons**: Lucide React
 - **Data Validation**: Zod
-- **Data Sources**: Yahoo Finance (primary), Alpha Vantage (fallback)
 
 ## Prerequisites
 
 - Node.js 18+ (LTS recommended)
 - npm or yarn
-- Alpha Vantage API key (optional, for FX fallback)
+- API Keys:
+  - Alpha Vantage (free): https://www.alphavantage.co/support/#api-key
+  - FRED (free): https://fred.stlouisfed.org/docs/api/api_key.html
 
 ## Local Development
 
@@ -50,10 +65,11 @@ npm install
 cp .env.example .env.local
 ```
 
-Edit `.env.local` and add your Alpha Vantage API key (optional):
+Edit `.env.local` and add your API keys:
 
 ```
-ALPHAVANTAGE_API_KEY=your_key_here
+ALPHAVANTAGE_API_KEY=your_alpha_vantage_key
+FRED_API_KEY=your_fred_key
 ```
 
 ### 4. Run development server
@@ -107,7 +123,8 @@ npm start
 2. Go to [vercel.com](https://vercel.com) and sign in
 3. Click "New Project" and import your repository
 4. Add environment variables:
-   - `ALPHAVANTAGE_API_KEY` (optional)
+   - `ALPHAVANTAGE_API_KEY` (required)
+   - `FRED_API_KEY` (required for yields)
 5. Click "Deploy"
 6. Your dashboard will be live at `your-project.vercel.app`
 
@@ -120,15 +137,20 @@ npm start
 5. Configure:
    - **Build Command**: `npm install && npm run build`
    - **Start Command**: `npm start`
-   - **Environment Variables**: Add `ALPHAVANTAGE_API_KEY` (optional)
+   - **Environment Variables**: Add `ALPHAVANTAGE_API_KEY` and `FRED_API_KEY`
 6. Click "Create Web Service"
 
-Alternatively, use the included `render.yaml` blueprint:
+### Deploy to Netlify
 
-1. Go to [dashboard.render.com/blueprints](https://dashboard.render.com/blueprints)
-2. Click "New Blueprint Instance"
-3. Connect your repository
-4. Render will auto-detect the `render.yaml` configuration
+1. Push your code to GitHub
+2. Go to [netlify.com](https://netlify.com) and sign in
+3. Click "Add new site" → "Import an existing project"
+4. Connect your repository
+5. Configure:
+   - **Build Command**: `npm run build`
+   - **Publish directory**: `.next`
+6. Add environment variables in Site settings → Environment variables
+7. Deploy!
 
 ## API Endpoints
 
@@ -147,18 +169,18 @@ Query Parameters:
 
 Returns system health status and cache information.
 
-## Indicator Categories
+## Indicator Categories & Sources
 
-| Category | Indicators |
-|----------|-----------|
-| Core | SPY, QQQ, IWM, RSP |
-| Vol/Tail | VIX, VVIX, VIX9D, VIX3M, SKEW, MOVE |
-| Credit | HYG, LQD, HYG/LQD ratio, TLT, SHY |
-| USD/FX | DXY, UUP, FXY, EUR/USD |
-| Rates | TNX (10Y), IRX (3M), FVX (5Y), 10Y-2Y spread |
-| Commodities | GLD, SLV, USO, DBA |
-| Sectors | XLK, XLF, XLI, XLE, XLV, XLP, XLU, XLRE, XLY, XLC |
-| Breadth | RSP/SPY, IWM/SPY ratios |
+| Category | Indicators | Source |
+|----------|-----------|--------|
+| Core | SPY, QQQ, IWM, RSP | Alpha Vantage |
+| Vol/Tail | VIX, VVIX, VIX9D, VIX3M, SKEW, MOVE | Stooq |
+| Credit | HYG, LQD, HYG/LQD ratio, TLT, SHY | Alpha Vantage |
+| USD/FX | DXY (UUP proxy), UUP, FXY, EUR/USD | Alpha Vantage |
+| Rates | TNX (10Y), IRX (3M), FVX (5Y), 10Y-2Y spread | FRED |
+| Commodities | GLD, SLV, USO, DBA | Alpha Vantage |
+| Sectors | XLK, XLF, XLI, XLE, XLV, XLP, XLU, XLRE, XLY, XLC | Alpha Vantage |
+| Breadth | RSP/SPY, IWM/SPY ratios | Derived |
 
 ## Scoring System
 
@@ -190,10 +212,18 @@ Settings are accessible via the gear icon in the top-right corner:
 
 ## Data Accuracy
 
-- All price changes are computed client-side from price and previousClose
-- Derived ratios (VIX/VVIX, HYG/LQD) compute proper previous values
+- All price changes are computed from price and previousClose (never trust provider change values)
+- Derived ratios (VIX/VVIX, HYG/LQD) compute proper previous values for accurate change calculation
 - Timestamps are displayed in America/New_York timezone (ET)
 - Cache state shown: LIVE (fresh) / CACHED (valid) / STALE (expired)
+- Source attribution shown for each indicator (e.g., "SPY (AV)", "VIX (Stooq)")
+
+## Rate Limiting & Caching
+
+- **In-memory TTL cache**: Prevents excessive API calls
+- **Single-flight deduplication**: Concurrent requests share same fetch
+- **Configurable refresh interval**: 10-30 minutes
+- **Graceful degradation**: If a source fails, shows "N/A" without crashing
 
 ## Disclaimer
 

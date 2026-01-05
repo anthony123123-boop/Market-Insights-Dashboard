@@ -7,7 +7,7 @@ export type CacheState = 'LIVE' | 'CACHED' | 'STALE';
 export type SessionType = 'REGULAR' | 'PRE' | 'POST' | 'CLOSE' | 'NA';
 
 // Data source
-export type DataSource = 'YAHOO' | 'AV' | 'PROXY';
+export type DataSource = 'AV' | 'STOOQ' | 'FRED' | 'PROXY';
 
 // Capability for each ticker
 export const CapabilitySchema = z.object({
@@ -16,7 +16,7 @@ export const CapabilitySchema = z.object({
   triedSymbols: z.array(z.string()).optional(),
   reason: z.string().optional(),
   isProxy: z.boolean().optional(),
-  sourceUsed: z.enum(['YAHOO', 'AV', 'PROXY']).optional(),
+  sourceUsed: z.enum(['AV', 'STOOQ', 'FRED', 'PROXY']).optional(),
 });
 
 export type Capability = z.infer<typeof CapabilitySchema>;
@@ -30,7 +30,7 @@ export const IndicatorSchema = z.object({
   changePct: z.number().optional(),
   session: z.enum(['REGULAR', 'PRE', 'POST', 'CLOSE', 'NA']),
   asOfET: z.string().optional(),
-  source: z.enum(['YAHOO', 'AV', 'PROXY']),
+  source: z.enum(['AV', 'STOOQ', 'FRED', 'PROXY']),
 });
 
 export type Indicator = z.infer<typeof IndicatorSchema>;
