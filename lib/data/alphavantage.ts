@@ -65,25 +65,6 @@ interface AVGlobalQuote {
 }
 
 /**
- * Raw response from Alpha Vantage (for debugging)
- */
-export interface AVDebugResponse {
-  httpStatus: number;
-  symbol: string;
-  rawResponse: Record<string, unknown>;
-  parsed: {
-    price?: number;
-    previousClose?: number;
-    tradingDay?: string;
-  } | null;
-  error?: string;
-  note?: string;
-  information?: string;
-  isRateLimited: boolean;
-  isError: boolean;
-}
-
-/**
  * Get Alpha Vantage API key
  */
 function getAPIKey(): string | null {
@@ -119,17 +100,9 @@ export function isAVFXTicker(ticker: string): boolean {
 }
 
 /**
- * Normalize symbol for Alpha Vantage (no prefixes, uppercase)
+ * Fetch global quote (ETF/equity) from Alpha Vantage
  */
-function normalizeSymbol(symbol: string): string {
-  // Remove any prefixes and ensure uppercase
-  return symbol.replace(/^[\^$]/, '').toUpperCase();
-}
-
-/**
- * Fetch global quote (ETF/equity) from Alpha Vantage with detailed response
- */
-export async function fetchGlobalQuoteRaw(symbol: string): Promise<{
+async function fetchGlobalQuoteRaw(symbol: string): Promise<{
   price: number;
   previousClose: number;
   change: number;
@@ -138,165 +111,57 @@ export async function fetchGlobalQuoteRaw(symbol: string): Promise<{
 } | null> {
   const apiKey = getAPIKey();
   if (!apiKey) {
-    console.warn('[AV] API key not set');
+    console.warn('Alpha Vantage API key not set');
     return null;
   }
 
-  // Normalize symbol (remove prefixes, uppercase)
-  const normalizedSymbol = normalizeSymbol(symbol);
-  const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${normalizedSymbol}&apikey=${apiKey}`;
+  const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
 
   try {
     const response = await fetch(url);
 
     if (!response.ok) {
-      console.warn(`[AV] HTTP ${response.status} for ${normalizedSymbol}`);
+      console.warn(`Alpha Vantage request failed: ${response.status}`);
       return null;
     }
 
-    const data = await response.json();
+    const data: AVGlobalQuote = await response.json();
 
-    // Check for rate limiting - "Note" indicates API limit reached
-    if (data.Note) {
-      console.warn(`[AV] Rate limited for ${normalizedSymbol}: ${data.Note}`);
+    // Check for rate limiting
+    if ((data as any).Note || (data as any).Information) {
+      console.warn('Alpha Vantage rate limited:', (data as any).Note || (data as any).Information);
       return null;
     }
 
-    // Check for "Information" field (often indicates API issues)
-    if (data.Information) {
-      console.warn(`[AV] Information for ${normalizedSymbol}: ${data.Information}`);
-      return null;
-    }
-
-    // Check for error message
-    if (data['Error Message']) {
-      console.warn(`[AV] Error for ${normalizedSymbol}: ${data['Error Message']}`);
+    // Check for error
+    if ((data as any)['Error Message']) {
+      console.warn('Alpha Vantage error:', (data as any)['Error Message']);
       return null;
     }
 
     const quote = data['Global Quote'];
-
-    // Check if Global Quote exists and has data
-    if (!quote || Object.keys(quote).length === 0) {
-      console.warn(`[AV] Empty Global Quote for ${normalizedSymbol}. Response keys: ${Object.keys(data).join(', ')}`);
-      return null;
-    }
-
-    // Check for required fields
-    if (!quote['05. price']) {
-      console.warn(`[AV] Missing price field for ${normalizedSymbol}. Quote keys: ${Object.keys(quote).join(', ')}`);
+    if (!quote || !quote['05. price']) {
+      console.warn(`Alpha Vantage no quote data for ${symbol}`);
       return null;
     }
 
     const price = parseFloat(quote['05. price']);
     const previousClose = parseFloat(quote['08. previous close']);
 
-    if (isNaN(price) || price === 0) {
-      console.warn(`[AV] Invalid price for ${normalizedSymbol}: ${quote['05. price']}`);
-      return null;
-    }
-
     // Always recompute change from price and previousClose
     const change = price - previousClose;
     const changePct = previousClose !== 0 ? (change / previousClose) * 100 : 0;
-
-    console.log(`[AV] Success for ${normalizedSymbol}: price=${price}, prevClose=${previousClose}`);
 
     return {
       price,
       previousClose,
       change,
       changePct,
-      tradingDay: quote['07. latest trading day'] || '',
+      tradingDay: quote['07. latest trading day'],
     };
   } catch (error) {
-    console.error(`[AV] Fetch error for ${normalizedSymbol}:`, error);
+    console.error(`Alpha Vantage fetch error for ${symbol}:`, error);
     return null;
-  }
-}
-
-/**
- * Debug function to test a single symbol and return detailed response
- */
-export async function debugFetchSymbol(symbol: string): Promise<AVDebugResponse> {
-  const apiKey = getAPIKey();
-  const normalizedSymbol = normalizeSymbol(symbol);
-
-  if (!apiKey) {
-    return {
-      httpStatus: 0,
-      symbol: normalizedSymbol,
-      rawResponse: {},
-      parsed: null,
-      error: 'ALPHAVANTAGE_API_KEY not set',
-      isRateLimited: false,
-      isError: true,
-    };
-  }
-
-  const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${normalizedSymbol}&apikey=${apiKey}`;
-
-  try {
-    const response = await fetch(url);
-    const data = await response.json();
-
-    // Redact API key from any error messages
-    const sanitizedData = JSON.parse(
-      JSON.stringify(data).replace(new RegExp(apiKey, 'g'), '[REDACTED]')
-    );
-
-    const result: AVDebugResponse = {
-      httpStatus: response.status,
-      symbol: normalizedSymbol,
-      rawResponse: sanitizedData,
-      parsed: null,
-      isRateLimited: false,
-      isError: false,
-    };
-
-    // Check for Note (rate limiting)
-    if (data.Note) {
-      result.note = data.Note;
-      result.isRateLimited = true;
-    }
-
-    // Check for Information
-    if (data.Information) {
-      result.information = data.Information;
-    }
-
-    // Check for Error Message
-    if (data['Error Message']) {
-      result.error = data['Error Message'];
-      result.isError = true;
-    }
-
-    // Try to parse Global Quote
-    const quote = data['Global Quote'];
-    if (quote && Object.keys(quote).length > 0) {
-      const price = parseFloat(quote['05. price']);
-      const previousClose = parseFloat(quote['08. previous close']);
-
-      if (!isNaN(price)) {
-        result.parsed = {
-          price,
-          previousClose: isNaN(previousClose) ? undefined : previousClose,
-          tradingDay: quote['07. latest trading day'],
-        };
-      }
-    }
-
-    return result;
-  } catch (error) {
-    return {
-      httpStatus: 0,
-      symbol: normalizedSymbol,
-      rawResponse: {},
-      parsed: null,
-      error: error instanceof Error ? error.message : 'Unknown fetch error',
-      isRateLimited: false,
-      isError: true,
-    };
   }
 }
 
@@ -322,13 +187,12 @@ export async function fetchAVEquityIndicator(symbol: string): Promise<{
     };
   }
 
-  const normalizedSymbol = normalizeSymbol(symbol);
-  const cacheKey = `av:quote:${normalizedSymbol}`;
+  const cacheKey = `av:quote:${symbol}`;
 
   try {
     const result = await cache.singleFlight(
       cacheKey,
-      () => fetchGlobalQuoteRaw(normalizedSymbol),
+      () => fetchGlobalQuoteRaw(symbol),
       { ttlMs: CACHE_TTL.QUOTES }
     );
 
@@ -343,8 +207,8 @@ export async function fetchAVEquityIndicator(symbol: string): Promise<{
         },
         capability: {
           ok: false,
-          resolvedSymbol: normalizedSymbol,
-          reason: 'No data from Alpha Vantage (check /api/debug/av for details)',
+          resolvedSymbol: symbol,
+          reason: 'No data from Alpha Vantage',
           sourceUsed: 'AV' as DataSource,
         },
       };
@@ -363,12 +227,12 @@ export async function fetchAVEquityIndicator(symbol: string): Promise<{
       },
       capability: {
         ok: true,
-        resolvedSymbol: normalizedSymbol,
+        resolvedSymbol: symbol,
         sourceUsed: 'AV' as DataSource,
       },
     };
   } catch (error) {
-    console.error(`[AV] Error for ${symbol}:`, error);
+    console.error(`Alpha Vantage fetch error for ${symbol}:`, error);
     return {
       indicator: {
         displayName: symbol,
@@ -377,7 +241,7 @@ export async function fetchAVEquityIndicator(symbol: string): Promise<{
       },
       capability: {
         ok: false,
-        resolvedSymbol: normalizedSymbol,
+        resolvedSymbol: symbol,
         reason: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         sourceUsed: 'AV' as DataSource,
       },
