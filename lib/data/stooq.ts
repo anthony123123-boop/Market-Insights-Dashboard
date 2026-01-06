@@ -140,6 +140,9 @@ function parseStooqCSV(csv: string, requestedSymbol: string): StooqParseResult |
   };
 }
 
+// Symbols to log detailed diagnostics for
+const DEBUG_SYMBOLS = ['spy.us', 'qqq.us', 'gld.us', 'uup.us'];
+
 /**
  * Fetch raw quote from Stooq
  */
@@ -152,8 +155,13 @@ async function fetchStooqRaw(stooqSymbol: string): Promise<{
   // Stooq CSV endpoint: s=symbol, f=fields, h=header, e=csv
   // Fields: s=symbol, d2=date, t2=time, o=open, h=high, l=low, c=close, v=volume
   const url = `${STOOQ_BASE_URL}?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcv&h&e=csv`;
+  const isDebugSymbol = DEBUG_SYMBOLS.includes(stooqSymbol.toLowerCase());
 
-  console.log(`[Stooq] Fetching: ${stooqSymbol}`);
+  if (isDebugSymbol) {
+    console.log(`[Stooq:DEBUG] Fetching ${stooqSymbol} from URL: ${url}`);
+  } else {
+    console.log(`[Stooq] Fetching: ${stooqSymbol}`);
+  }
 
   try {
     const controller = new AbortController();
@@ -170,20 +178,35 @@ async function fetchStooqRaw(stooqSymbol: string): Promise<{
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.warn(`[Stooq] HTTP ${response.status} for ${stooqSymbol}`);
+      if (isDebugSymbol) {
+        console.error(`[Stooq:DEBUG] HTTP ${response.status} for ${stooqSymbol} - FAILED`);
+      } else {
+        console.warn(`[Stooq] HTTP ${response.status} for ${stooqSymbol}`);
+      }
       return null;
     }
 
     const csv = await response.text();
 
     if (!csv || csv.length < 20) {
-      console.warn(`[Stooq] Empty response for ${stooqSymbol}`);
+      if (isDebugSymbol) {
+        console.error(`[Stooq:DEBUG] Empty response for ${stooqSymbol}, length=${csv?.length || 0}`);
+      } else {
+        console.warn(`[Stooq] Empty response for ${stooqSymbol}`);
+      }
       return null;
+    }
+
+    if (isDebugSymbol) {
+      console.log(`[Stooq:DEBUG] Raw CSV for ${stooqSymbol}:\n${csv.substring(0, 200)}`);
     }
 
     const parsed = parseStooqCSV(csv, stooqSymbol);
 
     if (!parsed) {
+      if (isDebugSymbol) {
+        console.error(`[Stooq:DEBUG] Failed to parse CSV for ${stooqSymbol}`);
+      }
       return null;
     }
 
@@ -191,7 +214,11 @@ async function fetchStooqRaw(stooqSymbol: string): Promise<{
     // This is an approximation - for more accurate prev close, would need historical data
     const previousClose = parsed.open;
 
-    console.log(`[Stooq] Success: ${stooqSymbol} price=${parsed.close} open=${parsed.open}`);
+    if (isDebugSymbol) {
+      console.log(`[Stooq:DEBUG] SUCCESS ${stooqSymbol}: price=${parsed.close}, open=${parsed.open}, date=${parsed.date}`);
+    } else {
+      console.log(`[Stooq] Success: ${stooqSymbol} price=${parsed.close} open=${parsed.open}`);
+    }
 
     return {
       price: parsed.close,
@@ -234,17 +261,23 @@ export async function fetchStooqIndicator(logicalTicker: string): Promise<{
   }
 
   const cacheKey = `stooq:${stooqSymbol}`;
+  const isDebugSymbol = DEBUG_SYMBOLS.includes(stooqSymbol.toLowerCase());
 
   try {
-    const result = await cache.singleFlight(
+    // Use singleFlightWithLKG for automatic last-known-good fallback
+    const result = await cache.singleFlightWithLKG(
       cacheKey,
       () => fetchStooqRaw(stooqSymbol),
       { ttlMs: CACHE_TTL.QUOTES }
     );
 
     const data = result.data;
+    const isStale = result.isStale || false;
 
     if (!data) {
+      if (isDebugSymbol) {
+        console.error(`[Stooq:DEBUG] No data available for ${logicalTicker} (${stooqSymbol}) - no cache fallback`);
+      }
       return {
         indicator: {
           displayName: logicalTicker,
@@ -260,12 +293,16 @@ export async function fetchStooqIndicator(logicalTicker: string): Promise<{
       };
     }
 
+    if (isStale && isDebugSymbol) {
+      console.log(`[Stooq:DEBUG] Using stale/LKG data for ${logicalTicker} (${result.ageSeconds}s old)`);
+    }
+
     const change = data.price - data.previousClose;
     const changePct = data.previousClose !== 0 ? (change / data.previousClose) * 100 : 0;
 
     return {
       indicator: {
-        displayName: `${logicalTicker} (Stooq)`,
+        displayName: `${logicalTicker} (Stooq)${isStale ? ' [cached]' : ''}`,
         price: data.price,
         previousClose: data.previousClose,
         change,
@@ -278,6 +315,7 @@ export async function fetchStooqIndicator(logicalTicker: string): Promise<{
         ok: true,
         resolvedSymbol: stooqSymbol,
         sourceUsed: 'STOOQ' as DataSource,
+        isStale,
       },
     };
   } catch (error) {

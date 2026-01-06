@@ -1,6 +1,5 @@
-import { fetchAVEquityIndicator, fetchFXIndicator, isAlphaVantageAvailable, AV_FX_PAIRS } from './alphavantage';
-import { fetchStooqIndicator, isStooqTicker } from './stooq';
-import { fetchFredIndicator, fetchYieldSpread, isFredTicker, isFredAvailable } from './fred';
+import { fetchStooqIndicator } from './stooq';
+import { fetchFredIndicator, fetchYieldSpread, isFredAvailable } from './fred';
 import { getBaseTickers, isDerivedTicker, getDerivedComponents, DERIVED_TICKERS, getTickerSource, OPTIONAL_TICKERS } from './symbols';
 import { cache, CACHE_TTL, generateCacheKey } from './cache';
 import type { Indicator, Capability, CacheState, Warning, DataSource } from '../types';
@@ -30,7 +29,7 @@ function isOptionalTicker(ticker: string): boolean {
  * Sources:
  * - STOOQ: PRIMARY for US ETFs/equities (uses .us suffix)
  * - FRED: PRIMARY for VIX (VIXCLS) and Treasury yields
- * - AV: FALLBACK only (25 req/day limit)
+ * - AV: Not used (25 req/day limit - too restrictive)
  */
 async function fetchIndicatorBySource(ticker: string): Promise<{
   indicator: Indicator;
@@ -40,36 +39,26 @@ async function fetchIndicatorBySource(ticker: string): Promise<{
 
   switch (source) {
     case 'STOOQ':
-      // Special handling for DXY - use UUP as proxy via Stooq
-      if (ticker === 'DXY') {
-        const result = await fetchStooqIndicator('UUP');
-        if (result.capability.ok) {
-          return {
-            indicator: {
-              ...result.indicator,
-              displayName: 'USD Index (UUP proxy)',
-            },
-            capability: {
-              ...result.capability,
-              isProxy: true,
-            },
-          };
-        }
-        return result;
-      }
       return fetchStooqIndicator(ticker);
 
     case 'FRED':
       return fetchFredIndicator(ticker);
 
     case 'AV':
-      // Check if it's an FX pair
-      if (ticker in AV_FX_PAIRS) {
-        const pair = AV_FX_PAIRS[ticker];
-        return fetchFXIndicator(ticker, pair.from, pair.to);
-      }
-      // Regular equity/ETF via AlphaVantage (fallback only)
-      return fetchAVEquityIndicator(ticker);
+      // AV is not used - return unavailable
+      console.warn(`[Fetcher] Ticker ${ticker} mapped to AV but AV is disabled`);
+      return {
+        indicator: {
+          displayName: ticker,
+          session: 'NA',
+          source: 'AV' as DataSource,
+        },
+        capability: {
+          ok: false,
+          reason: 'AlphaVantage disabled (25 req/day limit)',
+          sourceUsed: 'AV' as DataSource,
+        },
+      };
 
     default:
       return {

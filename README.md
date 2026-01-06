@@ -31,14 +31,15 @@ For day trading or real-time data, consider a paid data provider with lower late
 | Source | Data | API Key | Rate Limit |
 |--------|------|---------|------------|
 | **Stooq** | ETFs, US Equities (PRIMARY) | Not required | No limit |
-| **FRED** | VIX (VIXCLS), Treasury Yields (PRIMARY) | Required | 120/minute |
-| **Alpha Vantage** | FX pairs (FALLBACK only) | Optional | 25/day (free) |
+| **FRED** | VIX (VIXCLS), Treasury Yields | Required | 120/minute |
 
 All sources are:
 - Free tier available
 - Netlify/Vercel/serverless compatible
 - Rate-limit resistant via 60-minute caching
 - Have last-known-good fallback on failure
+
+**Note**: FRED_API_KEY is required for VIX and Treasury yields. Without it, the dashboard still works for equity/ETF data, but volatility and rates categories will be unavailable.
 
 ## Tech Stack
 
@@ -53,8 +54,7 @@ All sources are:
 - Node.js 18+ (LTS recommended)
 - npm or yarn
 - API Keys:
-  - Alpha Vantage (free): https://www.alphavantage.co/support/#api-key
-  - FRED (free): https://fred.stlouisfed.org/docs/api/api_key.html
+  - FRED (free, required for VIX+rates): https://fred.stlouisfed.org/docs/api/api_key.html
 
 ## Local Development
 
@@ -77,10 +77,9 @@ npm install
 cp .env.example .env.local
 ```
 
-Edit `.env.local` and add your API keys:
+Edit `.env.local` and add your API key:
 
 ```
-ALPHAVANTAGE_API_KEY=your_alpha_vantage_key
 FRED_API_KEY=your_fred_key
 ```
 
@@ -186,16 +185,15 @@ Returns system health status and cache information.
 | Category | Indicators | Source |
 |----------|-----------|--------|
 | Core | SPY, QQQ, IWM, RSP | Stooq |
-| Volatility | VIX | FRED (VIXCLS) |
-| Vol/Tail (optional) | VVIX, VIX9D, VIX3M, SKEW, MOVE | Stooq (may be unavailable) |
+| Volatility | VIX (optional, needs FRED_API_KEY) | FRED (VIXCLS) |
 | Credit | HYG, LQD, HYG/LQD ratio, TLT, SHY | Stooq |
-| USD/FX | DXY (UUP proxy), UUP, FXY | Stooq |
+| USD/FX | UUP (Dollar ETF) | Stooq |
 | Rates | TNX (10Y), IRX (3M), FVX (5Y), DGS2 (2Y), 10Y-2Y spread | FRED |
 | Commodities | GLD, SLV, USO, DBA | Stooq |
 | Sectors | XLK, XLF, XLI, XLE, XLV, XLP, XLU, XLRE, XLY, XLC | Stooq |
 | Breadth | RSP/SPY, IWM/SPY ratios | Derived |
 
-**Note**: VVIX, VIX9D, VIX3M, SKEW, and MOVE are optional indicators. If they're unavailable, the dashboard still provides meaningful scores using the core indicators.
+**Note**: VIX and Treasury yields require `FRED_API_KEY`. Without it, the dashboard still works but those categories will be unavailable. Scoring automatically renormalizes.
 
 ## Scoring System
 
@@ -240,6 +238,58 @@ Settings are accessible via the gear icon in the top-right corner:
 - **Single-flight deduplication**: Concurrent requests share same fetch
 - **Graceful degradation**: Optional indicators (VVIX, MOVE, etc.) don't break scoring if unavailable
 - **Stale data flag**: API response indicates when data is from cache after a failed refresh
+
+## How to Verify the Dashboard is Working
+
+After deployment, verify the dashboard is functional by checking `/api/market`:
+
+```bash
+curl https://your-site.netlify.app/api/market | jq '.'
+```
+
+### Acceptance Criteria
+
+1. **Core ETFs have data** (Stooq):
+   ```
+   capabilities.SPY.ok = true
+   capabilities.QQQ.ok = true
+   capabilities.GLD.ok = true
+   capabilities.UUP.ok = true
+   ```
+
+2. **Sectors have non-uniform scores** (not all 50):
+   ```
+   sectors[*].score should vary (e.g., 45, 52, 68, etc.)
+   ```
+
+3. **No N/A for core indicators**:
+   - SPY, QQQ, IWM, GLD, HYG, LQD, TLT should all have `price` values
+
+4. **VIX is optional**:
+   - If `FRED_API_KEY` is set: `capabilities.VIX.ok = true`
+   - If not set: `capabilities.VIX.ok = false` (this is OK - scoring works without it)
+
+### Example healthy response structure:
+```json
+{
+  "capabilities": {
+    "SPY": { "ok": true, "sourceUsed": "STOOQ" },
+    "QQQ": { "ok": true, "sourceUsed": "STOOQ" },
+    "GLD": { "ok": true, "sourceUsed": "STOOQ" },
+    "UUP": { "ok": true, "sourceUsed": "STOOQ" },
+    "VIX": { "ok": true, "sourceUsed": "FRED" }
+  },
+  "indicators": {
+    "SPY": { "price": 590.5, "changePct": 0.25 },
+    "GLD": { "price": 242.3, "changePct": -0.1 }
+  },
+  "scores": { "short": 55, "medium": 52, "long": 58 },
+  "sectors": [
+    { "ticker": "XLK", "score": 62 },
+    { "ticker": "XLF", "score": 48 }
+  ]
+}
+```
 
 ## Disclaimer
 

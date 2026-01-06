@@ -165,15 +165,18 @@ export async function fetchFredIndicator(logicalTicker: string): Promise<{
   const cacheKey = `fred:${fredInfo.seriesId}`;
 
   try {
-    const result = await cache.singleFlight(
+    // Use singleFlightWithLKG for automatic last-known-good fallback
+    const result = await cache.singleFlightWithLKG(
       cacheKey,
       () => fetchFredSeriesRaw(fredInfo.seriesId),
       { ttlMs: CACHE_TTL.QUOTES }
     );
 
     const data = result.data;
+    const isStale = result.isStale || false;
 
     if (!data) {
+      console.warn(`[FRED] No data available for ${logicalTicker} (${fredInfo.seriesId})`);
       return {
         indicator: {
           displayName: fredInfo.displayName,
@@ -189,12 +192,16 @@ export async function fetchFredIndicator(logicalTicker: string): Promise<{
       };
     }
 
+    if (isStale) {
+      console.log(`[FRED] Using stale/LKG data for ${logicalTicker} (${result.ageSeconds}s old)`);
+    }
+
     const change = data.price - data.previousClose;
     const changePct = data.previousClose !== 0 ? (change / data.previousClose) * 100 : 0;
 
     return {
       indicator: {
-        displayName: fredInfo.displayName,
+        displayName: `${fredInfo.displayName}${isStale ? ' [cached]' : ''}`,
         price: data.price,
         previousClose: data.previousClose,
         change,
@@ -207,6 +214,7 @@ export async function fetchFredIndicator(logicalTicker: string): Promise<{
         ok: true,
         resolvedSymbol: fredInfo.seriesId,
         sourceUsed: 'FRED' as DataSource,
+        isStale,
       },
     };
   } catch (error) {
@@ -252,7 +260,8 @@ export async function fetchYieldSpread(): Promise<{
   const cacheKey = 'fred:yield-spread';
 
   try {
-    const result = await cache.singleFlight(
+    // Use singleFlightWithLKG for automatic last-known-good fallback
+    const result = await cache.singleFlightWithLKG(
       cacheKey,
       async () => {
         const [tenYear, twoYear] = await Promise.all([
@@ -274,6 +283,7 @@ export async function fetchYieldSpread(): Promise<{
     );
 
     const data = result.data;
+    const isStale = result.isStale || false;
 
     if (!data) {
       return {
@@ -295,7 +305,7 @@ export async function fetchYieldSpread(): Promise<{
 
     return {
       indicator: {
-        displayName: '10Y-2Y Spread (FRED)',
+        displayName: `10Y-2Y Spread (FRED)${isStale ? ' [cached]' : ''}`,
         price: data.spread,
         previousClose: data.prevSpread,
         change,
@@ -308,6 +318,7 @@ export async function fetchYieldSpread(): Promise<{
         ok: true,
         resolvedSymbol: 'DGS10-DGS2',
         sourceUsed: 'FRED' as DataSource,
+        isStale,
       },
     };
   } catch (error) {

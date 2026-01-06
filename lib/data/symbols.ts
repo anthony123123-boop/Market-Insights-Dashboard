@@ -6,10 +6,10 @@ import type { Capability, DataSource } from '../types';
  * Sources (Priority Order for Swing/Long-Term):
  * - STOOQ: PRIMARY for US ETFs/equities (free, no API key, reliable)
  * - FRED: PRIMARY for VIX (VIXCLS) and Treasury yields (free with API key)
- * - AV (Alpha Vantage): FALLBACK only (25 req/day limit on free tier)
  * - PROXY: Derived/calculated indicators
  *
- * Note: VVIX, VIX9D, VIX3M, SKEW, MOVE are optional - scoring works without them
+ * Note: VIX is optional - scoring works without it if FRED_API_KEY not set.
+ * Volatility extras (VVIX, VIX9D, SKEW, MOVE) are NOT available from free sources.
  */
 
 export type TickerSource = 'AV' | 'STOOQ' | 'FRED' | 'PROXY';
@@ -19,35 +19,29 @@ export type TickerSource = 'AV' | 'STOOQ' | 'FRED' | 'PROXY';
  * These must always have data (from cache if fetch fails)
  */
 export const PRIORITY_TICKERS = [
-  // Core ETFs
-  'SPY', 'QQQ', 'IWM', 'GLD', 'HYG', 'LQD', 'TLT',
-  // Rates
+  // Core ETFs (Stooq)
+  'SPY', 'QQQ', 'IWM', 'GLD', 'HYG', 'LQD', 'TLT', 'UUP',
+  // Rates (FRED)
   'TNX', 'DGS2', 'IRX',
-  // Sectors
+  // Sectors (Stooq)
   'XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC',
 ] as const;
 
 /**
  * Optional tickers - scoring works if these are unavailable
+ * VIX requires FRED_API_KEY
  */
 export const OPTIONAL_TICKERS = [
-  'VVIX', 'VIX9D', 'VIX3M', 'SKEW', 'MOVE',
+  'VIX', // From FRED (needs API key)
 ] as const;
 
 /**
  * Source routing for each ticker
+ * Only includes tickers that have working data sources
  */
 export const TICKER_SOURCES: Record<string, TickerSource> = {
-  // VIX - FRED PRIMARY (VIXCLS series, very reliable)
+  // VIX - FRED (VIXCLS series) - optional, needs API key
   VIX: 'FRED',
-
-  // Optional volatility indices - marked but may not be available
-  // These don't break scoring if missing
-  VVIX: 'STOOQ',
-  VIX9D: 'STOOQ',
-  VIX3M: 'STOOQ',
-  SKEW: 'STOOQ',
-  MOVE: 'STOOQ',
 
   // Treasury yields - FRED (free with key)
   TNX: 'FRED',
@@ -66,7 +60,7 @@ export const TICKER_SOURCES: Record<string, TickerSource> = {
   LQD: 'STOOQ',
   TLT: 'STOOQ',
   SHY: 'STOOQ',
-  UUP: 'STOOQ',
+  UUP: 'STOOQ',  // Used for USD exposure (replaces DXY)
   FXY: 'STOOQ',
   GLD: 'STOOQ',
   SLV: 'STOOQ',
@@ -84,10 +78,6 @@ export const TICKER_SOURCES: Record<string, TickerSource> = {
   XLRE: 'STOOQ',
   XLY: 'STOOQ',
   XLC: 'STOOQ',
-
-  // FX - STOOQ via UUP proxy
-  DXY: 'STOOQ', // Uses UUP as proxy
-  EURUSD: 'AV', // Keep on AV as fallback
 };
 
 /**
@@ -99,17 +89,10 @@ export function getTickerSource(ticker: string): TickerSource {
 }
 
 /**
- * Proxy mappings for when primary fails
- */
-export const PROXY_MAPPINGS: Record<string, { proxy: string; label: string }> = {
-  DXY: { proxy: 'UUP', label: 'USD proxy (UUP)' },
-};
-
-/**
  * Derived/calculated tickers (computed from other indicators)
+ * Note: VIX_VVIX_RATIO removed since VVIX is not available from free sources
  */
 export const DERIVED_TICKERS = [
-  'VIX_VVIX_RATIO',
   'HYG_LQD_RATIO',
   'YIELD_10Y_2Y',
   'RSP_SPY_RATIO',
@@ -123,7 +106,6 @@ export type DerivedTicker = typeof DERIVED_TICKERS[number];
  */
 export function getDerivedComponents(ticker: DerivedTicker): { a: string; b: string; type: 'ratio' | 'spread' } {
   const mappings: Record<DerivedTicker, { a: string; b: string; type: 'ratio' | 'spread' }> = {
-    VIX_VVIX_RATIO: { a: 'VIX', b: 'VVIX', type: 'ratio' },
     HYG_LQD_RATIO: { a: 'HYG', b: 'LQD', type: 'ratio' },
     YIELD_10Y_2Y: { a: 'TNX', b: 'IRX', type: 'spread' },
     RSP_SPY_RATIO: { a: 'RSP', b: 'SPY', type: 'ratio' },
