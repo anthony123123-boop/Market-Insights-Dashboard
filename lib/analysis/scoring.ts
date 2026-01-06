@@ -382,29 +382,39 @@ export function generateStatus(
 }
 
 /**
- * Calculate sector attraction scores
+ * Calculate sector attraction scores using absolute + relative strength
+ *
+ * Formula:
+ * - Base score = 50
+ * - delta = clamp(sectorChangePct * 2, -20, +20) — absolute performance
+ *   (±10% day is max effect of ±20 points)
+ * - rs = clamp((sectorChangePct - spyChangePct) * 2, -15, +15) — relative strength vs SPY
+ *   (±7.5% relative outperformance is max effect of ±15 points)
+ * - Final score = clamp(50 + delta + rs, 0, 100)
  */
 export function calculateSectorScores(indicators: Record<string, Indicator>): Sector[] {
   const spy = indicators['SPY'];
-  const spyChange = spy?.changePct ?? 0;
+  const spyChangePct = spy?.changePct ?? 0;
 
   return SECTOR_ETFS.map((ticker) => {
     const sector = indicators[ticker];
 
+    // If no data, return neutral score
     if (sector?.changePct === undefined) {
       return { ticker, score: 50, name: ticker };
     }
 
-    // Base score from relative performance vs SPY
-    const relativePerformance = (sector.changePct ?? 0) - spyChange;
+    const sectorChangePct = sector.changePct;
 
-    // Normalize to 0-100 (outperformance of +2% = 100, underperformance of -2% = 0)
-    let score = normalize(relativePerformance, -2, 2);
+    // Absolute performance component: ±10% day caps at ±20 points
+    const delta = clamp(sectorChangePct * 2, -20, 20);
 
-    // Add momentum factor
-    if (sector.changePct !== undefined && sector.changePct > 0) {
-      score = Math.min(100, score + 10); // Bonus for positive performance
-    }
+    // Relative strength vs SPY: ±7.5% outperformance caps at ±15 points
+    const relativeStrength = sectorChangePct - spyChangePct;
+    const rs = clamp(relativeStrength * 2, -15, 15);
+
+    // Final score: base 50 + adjustments, clamped to 0-100
+    const score = clamp(50 + delta + rs, 0, 100);
 
     return {
       ticker,
@@ -412,4 +422,11 @@ export function calculateSectorScores(indicators: Record<string, Indicator>): Se
       name: ticker,
     };
   });
+}
+
+/**
+ * Clamp a value between min and max
+ */
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }

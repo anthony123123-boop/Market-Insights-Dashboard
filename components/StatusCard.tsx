@@ -87,12 +87,12 @@ export function StatusDetailsPanel({
   }
 
   return (
-    <FrostedCard className="h-full overflow-auto">
-      <h3 className="text-lg font-semibold text-white mb-4">Analysis Details</h3>
-      <ul className="space-y-3">
+    <FrostedCard className="h-full flex flex-col overflow-hidden">
+      <h3 className="text-lg font-semibold text-white mb-4 flex-shrink-0">Analysis Details</h3>
+      <ul className="space-y-3 overflow-y-auto flex-grow">
         {status.bullets.map((bullet, index) => (
           <li key={index} className="flex items-start gap-3 text-sm text-gray-300">
-            <span className="text-green-400 mt-1">•</span>
+            <span className="text-green-400 mt-1 flex-shrink-0">•</span>
             <span>{bullet}</span>
           </li>
         ))}

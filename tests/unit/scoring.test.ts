@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateScores, getStatusLabel, generateStatus } from '@/lib/analysis/scoring';
+import { calculateScores, getStatusLabel, generateStatus, calculateSectorScores } from '@/lib/analysis/scoring';
 import type { Indicator } from '@/lib/types';
 
 describe('Scoring Functions', () => {
@@ -228,5 +228,180 @@ describe('Data Computation', () => {
     expect(ratioPrev).toBeCloseTo(0.1778, 4);
     expect(ratioChange).not.toBe(0);
     expect(ratioPct).toBeCloseTo(-0.74, 1);
+  });
+});
+
+describe('calculateSectorScores', () => {
+  // Helper to create a minimal indicator with just changePct
+  const createIndicator = (changePct: number): Indicator => ({
+    displayName: 'TEST',
+    price: 100,
+    previousClose: 100 / (1 + changePct / 100),
+    change: changePct,
+    changePct,
+    session: 'REGULAR',
+    source: 'STOOQ',
+  });
+
+  it('returns score of 50 when sector and SPY have same performance (0%)', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(0),
+      XLK: createIndicator(0),
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // 0% change, 0% relative = base 50
+    expect(xlk?.score).toBe(50);
+  });
+
+  it('returns score of 50 for missing sector data', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(1),
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // Missing data defaults to 50
+    expect(xlk?.score).toBe(50);
+  });
+
+  it('increases score for positive sector performance', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(0),
+      XLK: createIndicator(2), // +2% up day
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // delta = 2 * 2 = 4, rs = 2 * 2 = 4, total = 50 + 4 + 4 = 58
+    expect(xlk?.score).toBe(58);
+  });
+
+  it('decreases score for negative sector performance', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(0),
+      XLK: createIndicator(-3), // -3% down day
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // delta = -3 * 2 = -6, rs = -3 * 2 = -6, total = 50 - 6 - 6 = 38
+    expect(xlk?.score).toBe(38);
+  });
+
+  it('calculates relative strength vs SPY correctly', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(1), // SPY up 1%
+      XLK: createIndicator(3), // XLK up 3% (outperforming by 2%)
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // delta = 3 * 2 = 6, rs = (3-1) * 2 = 4, total = 50 + 6 + 4 = 60
+    expect(xlk?.score).toBe(60);
+  });
+
+  it('handles sector underperforming SPY', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(2), // SPY up 2%
+      XLK: createIndicator(0), // XLK flat (underperforming by 2%)
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // delta = 0 * 2 = 0, rs = (0-2) * 2 = -4, total = 50 + 0 - 4 = 46
+    expect(xlk?.score).toBe(46);
+  });
+
+  it('clamps delta at ±20 for extreme moves (±10% day)', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(0),
+      XLK: createIndicator(15), // +15% extreme up day
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // delta = clamp(15 * 2, -20, 20) = 20
+    // rs = clamp(15 * 2, -15, 15) = 15
+    // total = 50 + 20 + 15 = 85 (not 50 + 30 + 30 = 110)
+    expect(xlk?.score).toBe(85);
+  });
+
+  it('clamps total score between 0 and 100', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(-10), // SPY down 10%
+      XLK: createIndicator(12), // XLK up 12% (massive outperformance)
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // delta = clamp(12 * 2, -20, 20) = 20
+    // rs = clamp((12 - -10) * 2, -15, 15) = clamp(44, -15, 15) = 15
+    // total = clamp(50 + 20 + 15, 0, 100) = 85
+    expect(xlk?.score).toBe(85);
+    expect(xlk?.score).toBeLessThanOrEqual(100);
+  });
+
+  it('handles negative extreme moves', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(5), // SPY up 5%
+      XLK: createIndicator(-12), // XLK down 12% (massive underperformance)
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // delta = clamp(-12 * 2, -20, 20) = -20
+    // rs = clamp((-12 - 5) * 2, -15, 15) = clamp(-34, -15, 15) = -15
+    // total = clamp(50 - 20 - 15, 0, 100) = 15
+    expect(xlk?.score).toBe(15);
+    expect(xlk?.score).toBeGreaterThanOrEqual(0);
+  });
+
+  it('produces varied scores for different sectors', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(0.5),
+      XLK: createIndicator(1.5), // Tech outperforming
+      XLF: createIndicator(-0.5), // Financials underperforming
+      XLE: createIndicator(2.0), // Energy strong
+      XLU: createIndicator(-1.0), // Utilities weak
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const scores = sectors.map((s) => s.score);
+
+    // All sectors should have unique scores (no flat 50s)
+    const uniqueScores = new Set(scores.filter((s) => s !== 50));
+    expect(uniqueScores.size).toBeGreaterThan(0);
+
+    // Verify XLK > XLF (tech outperforming financials)
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+    const xlf = sectors.find((s) => s.ticker === 'XLF');
+    expect(xlk?.score).toBeGreaterThan(xlf?.score ?? 0);
+  });
+
+  it('returns all sector ETFs', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(0),
+    };
+
+    const sectors = calculateSectorScores(indicators);
+
+    // Should have all 10 sector ETFs
+    expect(sectors.length).toBe(10);
+
+    const expectedTickers = ['XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC'];
+    for (const ticker of expectedTickers) {
+      expect(sectors.find((s) => s.ticker === ticker)).toBeDefined();
+    }
   });
 });

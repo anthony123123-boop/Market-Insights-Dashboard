@@ -7,6 +7,7 @@ import {
   formatPrice,
   formatChange,
   formatChangePct,
+  formatPillPrice,
   getChangeColorClass,
   isFXTicker,
   getDisplayName,
@@ -91,6 +92,7 @@ export function IndicatorPill({
 
 /**
  * Small pill variant for VIEW MORE section
+ * Shows: TICKER $PRICE (+/-X.XX%)
  */
 export function SmallIndicatorPill({
   ticker,
@@ -101,15 +103,21 @@ export function SmallIndicatorPill({
 }) {
   const changeClass = getChangeColorClass(indicator.change);
   const displayName = indicator.displayName || getDisplayName(ticker);
+  const priceDisplay = formatPillPrice(indicator.price, ticker);
 
   return (
-    <div className="frosted-card px-3 py-2 flex items-center justify-between gap-3 min-w-[140px]">
+    <div className="frosted-card px-3 py-2 flex items-center justify-between gap-3 min-w-[160px]">
       <span className="text-xs font-medium text-gray-300 truncate">
         {displayName}
       </span>
-      <span className={`text-xs font-semibold ${changeClass}`}>
-        {formatChangePct(indicator.changePct)}
-      </span>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <span className="text-xs font-semibold text-white">
+          {priceDisplay}
+        </span>
+        <span className={`text-xs font-semibold ${changeClass}`}>
+          ({formatChangePct(indicator.changePct)})
+        </span>
+      </div>
     </div>
   );
 }

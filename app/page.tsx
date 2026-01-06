@@ -225,14 +225,14 @@ export default function Dashboard() {
             </div>
 
             {/* Middle Row: Sector Chart + Details */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-              {/* Sector Chart - takes 2 columns on desktop */}
-              <div className="lg:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              {/* Sector Chart - full width on mobile, half on tablet/desktop */}
+              <div className="min-h-[320px]">
                 <SectorChart sectors={data.sectors} />
               </div>
 
-              {/* Details Panel - takes 1 column */}
-              <div className="lg:col-span-1">
+              {/* Details Panel - full width on mobile, half on tablet/desktop */}
+              <div className="min-h-[320px]">
                 <StatusDetailsPanel status={data.status} isVisible={statusExpanded} />
               </div>
             </div>
