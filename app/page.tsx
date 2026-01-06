@@ -44,7 +44,6 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<DashboardSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [statusExpanded, setStatusExpanded] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -169,8 +168,8 @@ export default function Dashboard() {
         {/* Dashboard content */}
         {data && (
           <>
-            {/* Top Row: Score Pills */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            {/* Top Row: Score Gauges */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
               {/* Short Term */}
               <FrostedCard className={`${cardPadding} ${getScoreColor(data.scores.short).glow}`}>
                 <div className="flex flex-col items-center">
@@ -215,25 +214,18 @@ export default function Dashboard() {
                   />
                 </div>
               </FrostedCard>
-
-              {/* Status */}
-              <StatusCard
-                status={data.status}
-                scores={data.scores}
-                onExpandChange={setStatusExpanded}
-              />
             </div>
 
-            {/* Middle Row: Sector Chart + Details */}
+            {/* Middle Row: Sector Chart + Risk Status Card */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {/* Sector Chart - full width on mobile, half on tablet/desktop */}
-              <div className="min-h-[320px]">
+              {/* Sector Chart */}
+              <div className="min-h-[280px]">
                 <SectorChart sectors={data.sectors} />
               </div>
 
-              {/* Details Panel - full width on mobile, half on tablet/desktop */}
-              <div className="min-h-[320px]">
-                <StatusDetailsPanel status={data.status} isVisible={statusExpanded} />
+              {/* Combined Risk Status + Analysis Details */}
+              <div className="min-h-[280px]">
+                <StatusCard status={data.status} scores={data.scores} />
               </div>
             </div>
 

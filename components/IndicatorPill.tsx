@@ -91,8 +91,22 @@ export function IndicatorPill({
 }
 
 /**
+ * Format source name for display
+ */
+function formatSource(source: string): string {
+  const sourceMap: Record<string, string> = {
+    STOOQ: 'Stooq',
+    FRED: 'FRED',
+    ALPHAVANTAGE: 'AV',
+    YAHOO: 'Yahoo',
+    DERIVED: 'Calc',
+  };
+  return sourceMap[source] || source;
+}
+
+/**
  * Small pill variant for VIEW MORE section
- * Shows: TICKER $PRICE (+/-X.XX%)
+ * Shows: TICKER (Source) PRICE +/-X.XX%
  */
 export function SmallIndicatorPill({
   ticker,
@@ -104,18 +118,20 @@ export function SmallIndicatorPill({
   const changeClass = getChangeColorClass(indicator.change);
   const displayName = indicator.displayName || getDisplayName(ticker);
   const priceDisplay = formatPillPrice(indicator.price, ticker);
+  const sourceName = formatSource(indicator.source);
 
   return (
-    <div className="frosted-card px-3 py-2 flex items-center justify-between gap-3 min-w-[160px]">
+    <div className="frosted-card px-3 py-2 flex items-center justify-between gap-3 min-w-[200px]">
       <span className="text-xs font-medium text-gray-300 truncate">
         {displayName}
+        <span className="text-gray-500 ml-1">({sourceName})</span>
       </span>
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <span className="text-xs font-semibold text-white">
           {priceDisplay}
         </span>
         <span className={`text-xs font-semibold ${changeClass}`}>
-          ({formatChangePct(indicator.changePct)})
+          {formatChangePct(indicator.changePct)}
         </span>
       </div>
     </div>

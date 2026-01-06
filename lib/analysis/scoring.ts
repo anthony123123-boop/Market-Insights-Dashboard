@@ -382,44 +382,65 @@ export function generateStatus(
 }
 
 /**
+ * Human-readable names for sector ETFs
+ */
+const SECTOR_NAMES: Record<string, string> = {
+  XLK: 'Technology',
+  XLF: 'Financials',
+  XLI: 'Industrials',
+  XLE: 'Energy',
+  XLV: 'Healthcare',
+  XLP: 'Consumer Staples',
+  XLU: 'Utilities',
+  XLRE: 'Real Estate',
+  XLY: 'Consumer Disc.',
+  XLC: 'Communication',
+};
+
+/**
  * Calculate sector attraction scores using absolute + relative strength
  *
- * Formula:
+ * Formula (changePct is in percentage points, e.g., 0.42 = 0.42%):
  * - Base score = 50
- * - delta = clamp(sectorChangePct * 2, -20, +20) — absolute performance
- *   (±10% day is max effect of ±20 points)
- * - rs = clamp((sectorChangePct - spyChangePct) * 2, -15, +15) — relative strength vs SPY
- *   (±7.5% relative outperformance is max effect of ±15 points)
- * - Final score = clamp(50 + delta + rs, 0, 100)
+ * - absMove = clamp(sectorPct, -2.5, +2.5) — absolute performance
+ *   (±2.5% day is max effect)
+ * - relMove = clamp(sectorPct - spyPct, -2.0, +2.0) — relative strength vs SPY
+ *   (±2.0% relative outperformance is max effect)
+ * - Final score = clamp(50 + absMove * 12 + relMove * 15, 0, 100)
+ *
+ * This ensures:
+ * - Absolute strength matters (+30 points max)
+ * - Relative strength vs SPY matters more (+30 points max)
+ * - Scores remain bounded and stable
  */
 export function calculateSectorScores(indicators: Record<string, Indicator>): Sector[] {
   const spy = indicators['SPY'];
-  const spyChangePct = spy?.changePct ?? 0;
+  const spyPct = spy?.changePct ?? 0;
 
   return SECTOR_ETFS.map((ticker) => {
     const sector = indicators[ticker];
+    const name = SECTOR_NAMES[ticker] || ticker;
 
-    // If no data, return neutral score
+    // If no data, return neutral score with muted styling indicator
     if (sector?.changePct === undefined) {
-      return { ticker, score: 50, name: ticker };
+      return { ticker, score: 50, name };
     }
 
-    const sectorChangePct = sector.changePct;
+    const sectorPct = sector.changePct;
 
-    // Absolute performance component: ±10% day caps at ±20 points
-    const delta = clamp(sectorChangePct * 2, -20, 20);
+    // Absolute performance: ±2.5% day caps contribution at ±30 points
+    const absMove = clamp(sectorPct, -2.5, 2.5);
 
-    // Relative strength vs SPY: ±7.5% outperformance caps at ±15 points
-    const relativeStrength = sectorChangePct - spyChangePct;
-    const rs = clamp(relativeStrength * 2, -15, 15);
+    // Relative strength vs SPY: ±2.0% outperformance caps at ±30 points
+    const relMove = clamp(sectorPct - spyPct, -2.0, 2.0);
 
-    // Final score: base 50 + adjustments, clamped to 0-100
-    const score = clamp(50 + delta + rs, 0, 100);
+    // Final score: base 50 + weighted components, clamped to 0-100
+    const score = clamp(50 + absMove * 12 + relMove * 15, 0, 100);
 
     return {
       ticker,
       score: Math.round(score),
-      name: ticker,
+      name,
     };
   });
 }
