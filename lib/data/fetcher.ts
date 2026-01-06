@@ -1,7 +1,7 @@
 import { fetchAVEquityIndicator, fetchFXIndicator, isAlphaVantageAvailable, AV_FX_PAIRS } from './alphavantage';
 import { fetchStooqIndicator, isStooqTicker } from './stooq';
 import { fetchFredIndicator, fetchYieldSpread, isFredTicker, isFredAvailable } from './fred';
-import { getBaseTickers, isDerivedTicker, getDerivedComponents, DERIVED_TICKERS, getTickerSource, PROXY_MAPPINGS } from './symbols';
+import { getBaseTickers, isDerivedTicker, getDerivedComponents, DERIVED_TICKERS, getTickerSource, OPTIONAL_TICKERS } from './symbols';
 import { cache, CACHE_TTL, generateCacheKey } from './cache';
 import type { Indicator, Capability, CacheState, Warning, DataSource } from '../types';
 import { getETTimestamp } from '../time';
@@ -19,7 +19,18 @@ interface FetchResult {
 }
 
 /**
+ * Check if a ticker is optional (scoring works without it)
+ */
+function isOptionalTicker(ticker: string): boolean {
+  return (OPTIONAL_TICKERS as readonly string[]).includes(ticker);
+}
+
+/**
  * Fetch a single indicator from the appropriate source
+ * Sources:
+ * - STOOQ: PRIMARY for US ETFs/equities (uses .us suffix)
+ * - FRED: PRIMARY for VIX (VIXCLS) and Treasury yields
+ * - AV: FALLBACK only (25 req/day limit)
  */
 async function fetchIndicatorBySource(ticker: string): Promise<{
   indicator: Indicator;
@@ -29,22 +40,9 @@ async function fetchIndicatorBySource(ticker: string): Promise<{
 
   switch (source) {
     case 'STOOQ':
-      return fetchStooqIndicator(ticker);
-
-    case 'FRED':
-      return fetchFredIndicator(ticker);
-
-    case 'AV':
-      // Check if it's an FX pair
-      if (ticker in AV_FX_PAIRS) {
-        const pair = AV_FX_PAIRS[ticker];
-        return fetchFXIndicator(ticker, pair.from, pair.to);
-      }
-
-      // Check for DXY which needs special handling (use UUP as proxy)
+      // Special handling for DXY - use UUP as proxy via Stooq
       if (ticker === 'DXY') {
-        // DXY doesn't have a direct AV symbol, use UUP as proxy
-        const result = await fetchAVEquityIndicator('UUP');
+        const result = await fetchStooqIndicator('UUP');
         if (result.capability.ok) {
           return {
             indicator: {
@@ -59,8 +57,18 @@ async function fetchIndicatorBySource(ticker: string): Promise<{
         }
         return result;
       }
+      return fetchStooqIndicator(ticker);
 
-      // Regular equity/ETF
+    case 'FRED':
+      return fetchFredIndicator(ticker);
+
+    case 'AV':
+      // Check if it's an FX pair
+      if (ticker in AV_FX_PAIRS) {
+        const pair = AV_FX_PAIRS[ticker];
+        return fetchFXIndicator(ticker, pair.from, pair.to);
+      }
+      // Regular equity/ETF via AlphaVantage (fallback only)
       return fetchAVEquityIndicator(ticker);
 
     default:
@@ -80,6 +88,7 @@ async function fetchIndicatorBySource(ticker: string): Promise<{
 
 /**
  * Fetch all base indicators in parallel (with rate limiting awareness)
+ * Optional indicators (VVIX, VIX9D, VIX3M, SKEW, MOVE) don't generate warnings if missing.
  */
 async function fetchAllBaseIndicators(tickers: string[]): Promise<{
   indicators: Record<string, Indicator>;
@@ -105,29 +114,37 @@ async function fetchAllBaseIndicators(tickers: string[]): Promise<{
     }
   }
 
-  // Check data source availability
-  if (!isAlphaVantageAvailable() && bySource.AV.length > 0) {
-    warnings.push({
-      code: 'AV_UNAVAILABLE',
-      message: 'Alpha Vantage API key not configured - ETF/equity data unavailable',
-    });
-  }
-
+  // Check data source availability - only warn for FRED (critical for VIX + rates)
   if (!isFredAvailable() && bySource.FRED.length > 0) {
     warnings.push({
       code: 'FRED_UNAVAILABLE',
-      message: 'FRED API key not configured - Treasury yield data unavailable',
+      message: 'FRED API key not configured - VIX and Treasury yield data unavailable',
     });
   }
 
+  // Note: We no longer warn about AV unavailability since Stooq is primary for ETFs
+
   // Fetch all indicators in parallel
-  // Note: We batch requests to avoid overwhelming rate limits
+  // With 60-minute cache, this happens at most once per hour
   const results = await Promise.all(
     tickers.map(async (ticker) => {
       try {
         const result = await fetchIndicatorBySource(ticker);
+
+        // If fetch failed for an optional ticker, don't treat it as critical
+        if (!result.capability.ok && isOptionalTicker(ticker)) {
+          console.log(`[Fetcher] Optional ticker ${ticker} unavailable - this is OK`);
+        }
+
         return { ticker, ...result };
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+        // Only log errors for non-optional tickers
+        if (!isOptionalTicker(ticker)) {
+          console.error(`[Fetcher] Error fetching ${ticker}: ${errorMessage}`);
+        }
+
         return {
           ticker,
           indicator: {
@@ -137,7 +154,7 @@ async function fetchAllBaseIndicators(tickers: string[]): Promise<{
           },
           capability: {
             ok: false,
-            reason: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            reason: `Error: ${errorMessage}`,
             sourceUsed: getTickerSource(ticker) as DataSource,
           },
         };
@@ -155,6 +172,7 @@ async function fetchAllBaseIndicators(tickers: string[]): Promise<{
 
 /**
  * Compute derived indicators from base indicators
+ * Handles missing optional indicators gracefully (no warnings for optional)
  */
 function computeDerivedIndicators(
   baseIndicators: Record<string, Indicator>,
@@ -196,10 +214,15 @@ function computeDerivedIndicators(
         reason: `Missing components: ${!indicatorA?.price ? components.a : ''} ${!indicatorB?.price ? components.b : ''}`.trim(),
         sourceUsed: 'PROXY',
       };
-      warnings.push({
-        code: 'DERIVED_MISSING',
-        message: `Cannot compute ${derivedTicker}: missing ${!indicatorA?.price ? components.a : components.b}`,
-      });
+
+      // Only warn if the missing component is NOT an optional ticker
+      const missingComponent = !indicatorA?.price ? components.a : components.b;
+      if (!isOptionalTicker(missingComponent)) {
+        warnings.push({
+          code: 'DERIVED_MISSING',
+          message: `Cannot compute ${derivedTicker}: missing ${missingComponent}`,
+        });
+      }
       continue;
     }
 

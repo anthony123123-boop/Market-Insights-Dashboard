@@ -11,9 +11,19 @@ interface CacheOptions {
   staleTtlMs?: number;
 }
 
+/**
+ * Last-known-good cache entry
+ * Stores the most recent successful fetch result
+ */
+interface LKGEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
 class InMemoryCache {
   private cache: Map<string, CacheEntry<unknown>> = new Map();
   private inFlight: Map<string, Promise<unknown>> = new Map();
+  private lastKnownGood: Map<string, LKGEntry<unknown>> = new Map();
 
   /**
    * Get item from cache
@@ -50,13 +60,36 @@ class InMemoryCache {
   }
 
   /**
+   * Get last-known-good value for a key
+   */
+  getLastKnownGood<T>(key: string): { data: T | null; ageSeconds: number } {
+    const entry = this.lastKnownGood.get(key) as LKGEntry<T> | undefined;
+    if (!entry) {
+      return { data: null, ageSeconds: 0 };
+    }
+    const ageSeconds = Math.floor((Date.now() - entry.timestamp) / 1000);
+    return { data: entry.data, ageSeconds };
+  }
+
+  /**
+   * Set last-known-good value
+   */
+  setLastKnownGood<T>(key: string, data: T): void {
+    this.lastKnownGood.set(key, {
+      data,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
    * Single-flight fetch - deduplicates concurrent requests
+   * With last-known-good fallback on fetch failure
    */
   async singleFlight<T>(
     key: string,
     fetcher: () => Promise<T>,
     options: CacheOptions
-  ): Promise<{ data: T; state: CacheState; ageSeconds: number }> {
+  ): Promise<{ data: T; state: CacheState; ageSeconds: number; isStale?: boolean }> {
     // Check cache first
     const cached = this.get<T>(key);
     if (cached.data !== null && cached.state === 'CACHED') {
@@ -81,8 +114,112 @@ class InMemoryCache {
 
     try {
       const data = await fetchPromise;
-      this.set(key, data, options);
+      // Only update cache and LKG if data is valid (not null)
+      if (data !== null) {
+        this.set(key, data, options);
+        this.setLastKnownGood(key, data);
+      }
       return { data, state: 'LIVE', ageSeconds: 0 };
+    } catch (error) {
+      // On fetch failure, try to return last-known-good value
+      const lkg = this.getLastKnownGood<T>(key);
+      if (lkg.data !== null) {
+        console.warn(`[Cache] Fetch failed for ${key}, using LKG (${lkg.ageSeconds}s old)`);
+        return {
+          data: lkg.data,
+          state: 'STALE',
+          ageSeconds: lkg.ageSeconds,
+          isStale: true,
+        };
+      }
+      // If no LKG, check stale cache
+      const stale = this.get<T>(key);
+      if (stale.data !== null) {
+        console.warn(`[Cache] Fetch failed for ${key}, using stale cache (${stale.ageSeconds}s old)`);
+        return {
+          data: stale.data,
+          state: 'STALE',
+          ageSeconds: stale.ageSeconds,
+          isStale: true,
+        };
+      }
+      // No fallback available
+      throw error;
+    } finally {
+      this.inFlight.delete(key);
+    }
+  }
+
+  /**
+   * Single-flight with automatic LKG fallback on null result
+   * Used for quote fetches where null means "no data"
+   */
+  async singleFlightWithLKG<T>(
+    key: string,
+    fetcher: () => Promise<T | null>,
+    options: CacheOptions
+  ): Promise<{ data: T | null; state: CacheState; ageSeconds: number; isStale?: boolean }> {
+    // Check cache first
+    const cached = this.get<T>(key);
+    if (cached.data !== null && cached.state === 'CACHED') {
+      return { data: cached.data, state: 'CACHED', ageSeconds: cached.ageSeconds };
+    }
+
+    // Check if there's already a request in flight
+    const inFlightPromise = this.inFlight.get(key);
+    if (inFlightPromise) {
+      const data = await inFlightPromise as T;
+      const afterFetch = this.get<T>(key);
+      return {
+        data,
+        state: 'CACHED',
+        ageSeconds: afterFetch.ageSeconds
+      };
+    }
+
+    // Start new fetch
+    const fetchPromise = fetcher();
+    this.inFlight.set(key, fetchPromise);
+
+    try {
+      const data = await fetchPromise;
+
+      // If fetch succeeded with data, update cache and LKG
+      if (data !== null) {
+        this.set(key, data, options);
+        this.setLastKnownGood(key, data);
+        return { data, state: 'LIVE', ageSeconds: 0 };
+      }
+
+      // Fetch returned null - try LKG fallback
+      const lkg = this.getLastKnownGood<T>(key);
+      if (lkg.data !== null) {
+        console.warn(`[Cache] Fetch returned null for ${key}, using LKG (${lkg.ageSeconds}s old)`);
+        return {
+          data: lkg.data,
+          state: 'STALE',
+          ageSeconds: lkg.ageSeconds,
+          isStale: true,
+        };
+      }
+
+      // No LKG available
+      return { data: null, state: 'LIVE', ageSeconds: 0 };
+    } catch (error) {
+      // On fetch error, try LKG
+      const lkg = this.getLastKnownGood<T>(key);
+      if (lkg.data !== null) {
+        console.warn(`[Cache] Fetch error for ${key}, using LKG (${lkg.ageSeconds}s old)`);
+        return {
+          data: lkg.data,
+          state: 'STALE',
+          ageSeconds: lkg.ageSeconds,
+          isStale: true,
+        };
+      }
+      // No fallback - return null (don't throw)
+      console.error(`[Cache] Fetch error for ${key}, no LKG available:`, error);
+      return { data: null, state: 'LIVE', ageSeconds: 0 };
     } finally {
       this.inFlight.delete(key);
     }
@@ -105,10 +242,11 @@ class InMemoryCache {
   /**
    * Get cache stats
    */
-  getStats(): { size: number; keys: string[] } {
+  getStats(): { size: number; keys: string[]; lkgSize: number } {
     return {
       size: this.cache.size,
       keys: Array.from(this.cache.keys()),
+      lkgSize: this.lastKnownGood.size,
     };
   }
 }
@@ -116,13 +254,17 @@ class InMemoryCache {
 // Singleton instance
 export const cache = new InMemoryCache();
 
-// Cache TTL constants
+/**
+ * Cache TTL constants
+ * Swing/Long-term tool: 60-minute refresh cycle
+ */
 export const CACHE_TTL = {
-  QUOTES: 60 * 1000, // 1 minute for quotes
-  HISTORICAL: 15 * 60 * 1000, // 15 minutes for historical data
+  // Main market data cache: 60 minutes for swing/long-term analysis
+  QUOTES: 60 * 60 * 1000, // 60 minutes for quotes
+  HISTORICAL: 60 * 60 * 1000, // 60 minutes for historical data
   SYMBOL_RESOLUTION: 24 * 60 * 60 * 1000, // 24 hours for symbol resolution
-  ANALYSIS: 5 * 60 * 1000, // 5 minutes for analysis results
-  FX_RATE: 5 * 60 * 1000, // 5 minutes for FX rates
+  ANALYSIS: 60 * 60 * 1000, // 60 minutes for analysis results
+  FX_RATE: 60 * 60 * 1000, // 60 minutes for FX rates
 } as const;
 
 /**

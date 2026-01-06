@@ -3,23 +3,54 @@ import type { Indicator, Capability, DataSource } from '../types';
 import { getETTimestamp } from '../time';
 
 /**
- * Stooq - Free data source for VIX and volatility indices
- * No API key required, CSV format
+ * Stooq - PRIMARY data source for US equities and ETFs
+ * Free, no API key required, CSV format
  * https://stooq.com/
+ *
+ * Symbol format: {ticker}.us for US securities
+ * Example: spy.us, qqq.us, gld.us, xlf.us
  */
 
 const STOOQ_BASE_URL = 'https://stooq.com/q/l/';
 
 /**
- * Symbol mapping for Stooq
+ * Complete mapping of logical tickers to Stooq symbols
+ * All US equities/ETFs use .us suffix
  */
 export const STOOQ_SYMBOLS: Record<string, string> = {
-  VIX: '^vix',
-  VVIX: '^vvix',
-  VIX9D: '^vix9d',
-  VIX3M: '^vix3m',
-  SKEW: '^skew',
-  MOVE: '^move',
+  // Core ETFs
+  SPY: 'spy.us',
+  QQQ: 'qqq.us',
+  IWM: 'iwm.us',
+  RSP: 'rsp.us',
+
+  // Credit/Bond ETFs
+  HYG: 'hyg.us',
+  LQD: 'lqd.us',
+  TLT: 'tlt.us',
+  SHY: 'shy.us',
+
+  // Currency ETFs
+  UUP: 'uup.us',
+  FXY: 'fxy.us',
+
+  // Commodity ETFs
+  GLD: 'gld.us',
+  SLV: 'slv.us',
+  USO: 'uso.us',
+  DBA: 'dba.us',
+
+  // Sector ETFs
+  XLK: 'xlk.us',
+  XLF: 'xlf.us',
+  XLI: 'xli.us',
+  XLE: 'xle.us',
+  XLV: 'xlv.us',
+  XLP: 'xlp.us',
+  XLU: 'xlu.us',
+  XLRE: 'xlre.us',
+  XLY: 'xly.us',
+  XLC: 'xlc.us',
 };
 
 /**
@@ -30,10 +61,20 @@ export function getStooqTickers(): string[] {
 }
 
 /**
- * Parse Stooq CSV response
- * Format: Symbol,Date,Time,Open,High,Low,Close,Volume
+ * Check if a ticker is supported by Stooq
  */
-function parseStooqCSV(csv: string): {
+export function isStooqTicker(ticker: string): boolean {
+  return ticker in STOOQ_SYMBOLS;
+}
+
+/**
+ * Get Stooq symbol for a ticker
+ */
+export function getStooqSymbol(ticker: string): string | null {
+  return STOOQ_SYMBOLS[ticker] || null;
+}
+
+interface StooqParseResult {
   symbol: string;
   date: string;
   time: string;
@@ -42,115 +83,130 @@ function parseStooqCSV(csv: string): {
   low: number;
   close: number;
   volume: number;
-} | null {
-  const lines = csv.trim().split('\n');
-  if (lines.length < 2) return null;
+}
 
-  const values = lines[1].split(',');
-  if (values.length < 8) return null;
+/**
+ * Parse Stooq CSV response
+ * Format: Symbol,Date,Time,Open,High,Low,Close,Volume
+ */
+function parseStooqCSV(csv: string, requestedSymbol: string): StooqParseResult | null {
+  const lines = csv.trim().split('\n');
+
+  if (lines.length < 2) {
+    console.warn(`[Stooq] CSV too short for ${requestedSymbol}: ${lines.length} lines`);
+    return null;
+  }
+
+  const header = lines[0].toLowerCase();
+  const dataLine = lines[1];
+
+  // Verify header format
+  if (!header.includes('symbol') || !header.includes('close')) {
+    console.warn(`[Stooq] Unexpected header for ${requestedSymbol}: ${header}`);
+    return null;
+  }
+
+  const values = dataLine.split(',');
+
+  // Check for "N/D" (No Data) markers
+  if (values.some(v => v.trim() === 'N/D')) {
+    console.warn(`[Stooq] No data (N/D) for ${requestedSymbol}`);
+    return null;
+  }
+
+  // Check we have enough fields
+  if (values.length < 7) {
+    console.warn(`[Stooq] Insufficient fields for ${requestedSymbol}: ${values.length}`);
+    return null;
+  }
 
   const close = parseFloat(values[6]);
-  if (isNaN(close) || close === 0) return null;
+  const open = parseFloat(values[3]);
+
+  if (isNaN(close) || close <= 0) {
+    console.warn(`[Stooq] Invalid close price for ${requestedSymbol}: ${values[6]}`);
+    return null;
+  }
 
   return {
     symbol: values[0],
     date: values[1],
     time: values[2],
-    open: parseFloat(values[3]),
-    high: parseFloat(values[4]),
-    low: parseFloat(values[5]),
+    open: isNaN(open) ? close : open,
+    high: parseFloat(values[4]) || close,
+    low: parseFloat(values[5]) || close,
     close,
     volume: parseFloat(values[7]) || 0,
   };
 }
 
 /**
- * Fetch quote from Stooq
+ * Fetch raw quote from Stooq
  */
-async function fetchStooqQuoteRaw(stooqSymbol: string): Promise<{
+async function fetchStooqRaw(stooqSymbol: string): Promise<{
   price: number;
   previousClose: number;
   date: string;
+  rawCsv: string;
 } | null> {
+  // Stooq CSV endpoint: s=symbol, f=fields, h=header, e=csv
+  // Fields: s=symbol, d2=date, t2=time, o=open, h=high, l=low, c=close, v=volume
+  const url = `${STOOQ_BASE_URL}?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcv&h&e=csv`;
+
+  console.log(`[Stooq] Fetching: ${stooqSymbol}`);
+
   try {
-    // Fetch current quote
-    const url = `${STOOQ_BASE_URL}?s=${stooqSymbol}&f=sd2t2ohlcv&h&e=csv`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
     const response = await fetch(url, {
+      signal: controller.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; MarketDashboard/1.0)',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/csv, text/plain, */*',
       },
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      console.warn(`Stooq request failed: ${response.status}`);
+      console.warn(`[Stooq] HTTP ${response.status} for ${stooqSymbol}`);
       return null;
     }
 
     const csv = await response.text();
-    const parsed = parseStooqCSV(csv);
 
-    if (!parsed) {
-      console.warn(`Stooq CSV parse failed for ${stooqSymbol}`);
+    if (!csv || csv.length < 20) {
+      console.warn(`[Stooq] Empty response for ${stooqSymbol}`);
       return null;
     }
 
-    // For previous close, we need historical data
-    // Stooq provides previous day data in their historical endpoint
-    const histUrl = `${STOOQ_BASE_URL}?s=${stooqSymbol}&f=sd2t2ohlcv&h&e=csv&d1=${getYesterdayDate()}&d2=${getTodayDate()}`;
+    const parsed = parseStooqCSV(csv, stooqSymbol);
 
-    let previousClose = parsed.open; // Fallback to open as approximation
-
-    try {
-      const histResponse = await fetch(histUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; MarketDashboard/1.0)',
-        },
-      });
-
-      if (histResponse.ok) {
-        const histCsv = await histResponse.text();
-        const histLines = histCsv.trim().split('\n');
-
-        // If we have 2+ data rows, second-to-last is previous day
-        if (histLines.length >= 3) {
-          const prevValues = histLines[histLines.length - 1].split(',');
-          const prevClose = parseFloat(prevValues[6]);
-          if (!isNaN(prevClose) && prevClose > 0) {
-            previousClose = prevClose;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Stooq historical fetch failed, using open as previous close');
+    if (!parsed) {
+      return null;
     }
+
+    // Use open as previous close (Stooq doesn't provide prev close in quote API)
+    // This is an approximation - for more accurate prev close, would need historical data
+    const previousClose = parsed.open;
+
+    console.log(`[Stooq] Success: ${stooqSymbol} price=${parsed.close} open=${parsed.open}`);
 
     return {
       price: parsed.close,
       previousClose,
       date: parsed.date,
+      rawCsv: csv,
     };
   } catch (error) {
-    console.error(`Stooq fetch error for ${stooqSymbol}:`, error);
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn(`[Stooq] Timeout for ${stooqSymbol}`);
+    } else {
+      console.error(`[Stooq] Fetch error for ${stooqSymbol}:`, error);
+    }
     return null;
   }
-}
-
-/**
- * Get today's date in YYYYMMDD format
- */
-function getTodayDate(): string {
-  const d = new Date();
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-}
-
-/**
- * Get yesterday's date in YYYYMMDD format
- */
-function getYesterdayDate(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 5); // Go back 5 days to ensure we get previous trading day
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /**
@@ -171,7 +227,7 @@ export async function fetchStooqIndicator(logicalTicker: string): Promise<{
       },
       capability: {
         ok: false,
-        reason: `No Stooq symbol mapping for ${logicalTicker}`,
+        reason: `${logicalTicker} not mapped to Stooq symbol`,
         sourceUsed: 'STOOQ' as DataSource,
       },
     };
@@ -182,7 +238,7 @@ export async function fetchStooqIndicator(logicalTicker: string): Promise<{
   try {
     const result = await cache.singleFlight(
       cacheKey,
-      () => fetchStooqQuoteRaw(stooqSymbol),
+      () => fetchStooqRaw(stooqSymbol),
       { ttlMs: CACHE_TTL.QUOTES }
     );
 
@@ -225,7 +281,7 @@ export async function fetchStooqIndicator(logicalTicker: string): Promise<{
       },
     };
   } catch (error) {
-    console.error(`Stooq fetch error for ${logicalTicker}:`, error);
+    console.error(`[Stooq] Error for ${logicalTicker}:`, error);
     return {
       indicator: {
         displayName: logicalTicker,
@@ -235,7 +291,7 @@ export async function fetchStooqIndicator(logicalTicker: string): Promise<{
       capability: {
         ok: false,
         resolvedSymbol: stooqSymbol,
-        reason: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        reason: `Error: ${error instanceof Error ? error.message : 'Unknown'}`,
         sourceUsed: 'STOOQ' as DataSource,
       },
     };
@@ -243,8 +299,70 @@ export async function fetchStooqIndicator(logicalTicker: string): Promise<{
 }
 
 /**
- * Check if a ticker is supported by Stooq
+ * Debug function - fetch and return raw data for a symbol
  */
-export function isStooqTicker(ticker: string): boolean {
-  return ticker in STOOQ_SYMBOLS;
+export async function debugStooqSymbol(logicalTicker: string): Promise<{
+  logicalTicker: string;
+  stooqSymbol: string | null;
+  success: boolean;
+  data: {
+    price?: number;
+    previousClose?: number;
+    change?: number;
+    changePct?: number;
+    date?: string;
+    rawCsv?: string;
+  } | null;
+  error?: string;
+}> {
+  const stooqSymbol = STOOQ_SYMBOLS[logicalTicker];
+
+  if (!stooqSymbol) {
+    return {
+      logicalTicker,
+      stooqSymbol: null,
+      success: false,
+      data: null,
+      error: `No Stooq symbol mapping for ${logicalTicker}`,
+    };
+  }
+
+  try {
+    const result = await fetchStooqRaw(stooqSymbol);
+
+    if (!result) {
+      return {
+        logicalTicker,
+        stooqSymbol,
+        success: false,
+        data: null,
+        error: 'Stooq returned no data',
+      };
+    }
+
+    const change = result.price - result.previousClose;
+    const changePct = result.previousClose !== 0 ? (change / result.previousClose) * 100 : 0;
+
+    return {
+      logicalTicker,
+      stooqSymbol,
+      success: true,
+      data: {
+        price: result.price,
+        previousClose: result.previousClose,
+        change,
+        changePct,
+        date: result.date,
+        rawCsv: result.rawCsv,
+      },
+    };
+  } catch (error) {
+    return {
+      logicalTicker,
+      stooqSymbol,
+      success: false,
+      data: null,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
 }

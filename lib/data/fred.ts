@@ -14,14 +14,18 @@ const FRED_BASE_URL = 'https://api.stlouisfed.org/fred/series/observations';
  * FRED series IDs for treasury yields and economic indicators
  */
 export const FRED_SERIES: Record<string, { seriesId: string; displayName: string }> = {
-  // Treasury Yields
-  TNX: { seriesId: 'DGS10', displayName: '10-Year Treasury (FRED)' }, // 10-Year Treasury Constant Maturity Rate
-  IRX: { seriesId: 'DGS3MO', displayName: '3-Month T-Bill (FRED)' }, // 3-Month Treasury Bill Rate
-  FVX: { seriesId: 'DGS5', displayName: '5-Year Treasury (FRED)' }, // 5-Year Treasury Constant Maturity Rate
-  TYX: { seriesId: 'DGS30', displayName: '30-Year Treasury (FRED)' }, // 30-Year Treasury Constant Maturity Rate
+  // VIX - CBOE Volatility Index (PRIMARY source for VIX)
+  VIX: { seriesId: 'VIXCLS', displayName: 'VIX (FRED)' },
 
-  // 2-Year for yield curve calculation
-  DGS2: { seriesId: 'DGS2', displayName: '2-Year Treasury (FRED)' }, // 2-Year Treasury
+  // Treasury Yields
+  TNX: { seriesId: 'DGS10', displayName: '10Y Treasury (FRED)' },
+  IRX: { seriesId: 'DGS3MO', displayName: '3M T-Bill (FRED)' },
+  FVX: { seriesId: 'DGS5', displayName: '5Y Treasury (FRED)' },
+  TYX: { seriesId: 'DGS30', displayName: '30Y Treasury (FRED)' },
+
+  // Additional rates for yield curve
+  DGS2: { seriesId: 'DGS2', displayName: '2Y Treasury (FRED)' },
+  DGS1: { seriesId: 'DGS1', displayName: '1Y Treasury (FRED)' },
 };
 
 /**

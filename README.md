@@ -1,32 +1,44 @@
 # Market Insights Dashboard
 
-A real-time market analysis dashboard that provides short, medium, and long-term market outlook scores based on multiple indicators including volatility, credit conditions, and market breadth.
+A **swing/long-term** market analysis dashboard that provides short, medium, and long-term market outlook scores based on multiple indicators including volatility, credit conditions, and market breadth.
 
 ![Dashboard Preview](./public/wireframe.png)
 
 ## Features
 
-- **Real-time Market Data**: Multiple free data sources (Netlify/serverless safe)
+- **Hourly Refresh (60-minute cache)**: Optimized for swing/long-term analysis, not day trading
 - **Multi-timeframe Analysis**: Short-term (1-5 days), Medium-term (2-6 weeks), Long-term (3-12 months)
 - **Sector Analysis**: Sector ETF attraction scores with visual bar chart
 - **Comprehensive Indicators**: VIX, credit spreads, yield curves, FX, and more
-- **Configurable Settings**: Adjust refresh intervals, weight presets, and display options
+- **Robust Caching**: Last-known-good fallback ensures stability when providers fail
 - **Dark Theme**: Beautiful frosted glass UI with score-based color coding
 - **Mobile Responsive**: Works seamlessly on phone and desktop
 - **Source Attribution**: Each indicator shows its data source
+
+## Why Hourly Refresh?
+
+This dashboard is designed for **swing traders and long-term investors**, not day traders:
+
+1. **Stability over speed**: A 60-minute cache ensures the dashboard shows consistent data even when providers have temporary issues
+2. **Last-known-good fallback**: If a provider fails, the dashboard shows the last successful data instead of N/A
+3. **Rate limit friendly**: Hourly refresh stays well within free tier limits of all data providers
+4. **Meaningful for swing trading**: Hourly data is sufficient for decisions on 1-day to 12-month timeframes
+
+For day trading or real-time data, consider a paid data provider with lower latency.
 
 ## Data Sources
 
 | Source | Data | API Key | Rate Limit |
 |--------|------|---------|------------|
-| **Alpha Vantage** | ETFs, Equities, FX | Required | 25/day (free) |
-| **Stooq** | VIX, Volatility Indices | Not required | No limit |
-| **FRED** | Treasury Yields, Yield Curve | Required | 120/minute |
+| **Stooq** | ETFs, US Equities (PRIMARY) | Not required | No limit |
+| **FRED** | VIX (VIXCLS), Treasury Yields (PRIMARY) | Required | 120/minute |
+| **Alpha Vantage** | FX pairs (FALLBACK only) | Optional | 25/day (free) |
 
 All sources are:
 - Free tier available
 - Netlify/Vercel/serverless compatible
-- Rate-limit resistant via caching
+- Rate-limit resistant via 60-minute caching
+- Have last-known-good fallback on failure
 
 ## Tech Stack
 
@@ -173,14 +185,17 @@ Returns system health status and cache information.
 
 | Category | Indicators | Source |
 |----------|-----------|--------|
-| Core | SPY, QQQ, IWM, RSP | Alpha Vantage |
-| Vol/Tail | VIX, VVIX, VIX9D, VIX3M, SKEW, MOVE | Stooq |
-| Credit | HYG, LQD, HYG/LQD ratio, TLT, SHY | Alpha Vantage |
-| USD/FX | DXY (UUP proxy), UUP, FXY, EUR/USD | Alpha Vantage |
-| Rates | TNX (10Y), IRX (3M), FVX (5Y), 10Y-2Y spread | FRED |
-| Commodities | GLD, SLV, USO, DBA | Alpha Vantage |
-| Sectors | XLK, XLF, XLI, XLE, XLV, XLP, XLU, XLRE, XLY, XLC | Alpha Vantage |
+| Core | SPY, QQQ, IWM, RSP | Stooq |
+| Volatility | VIX | FRED (VIXCLS) |
+| Vol/Tail (optional) | VVIX, VIX9D, VIX3M, SKEW, MOVE | Stooq (may be unavailable) |
+| Credit | HYG, LQD, HYG/LQD ratio, TLT, SHY | Stooq |
+| USD/FX | DXY (UUP proxy), UUP, FXY | Stooq |
+| Rates | TNX (10Y), IRX (3M), FVX (5Y), DGS2 (2Y), 10Y-2Y spread | FRED |
+| Commodities | GLD, SLV, USO, DBA | Stooq |
+| Sectors | XLK, XLF, XLI, XLE, XLV, XLP, XLU, XLRE, XLY, XLC | Stooq |
 | Breadth | RSP/SPY, IWM/SPY ratios | Derived |
+
+**Note**: VVIX, VIX9D, VIX3M, SKEW, and MOVE are optional indicators. If they're unavailable, the dashboard still provides meaningful scores using the core indicators.
 
 ## Scoring System
 
@@ -220,10 +235,11 @@ Settings are accessible via the gear icon in the top-right corner:
 
 ## Rate Limiting & Caching
 
-- **In-memory TTL cache**: Prevents excessive API calls
+- **60-minute TTL cache**: Optimized for swing/long-term analysis
+- **Last-known-good fallback**: On fetch failure, uses previous successful data
 - **Single-flight deduplication**: Concurrent requests share same fetch
-- **Configurable refresh interval**: 10-30 minutes
-- **Graceful degradation**: If a source fails, shows "N/A" without crashing
+- **Graceful degradation**: Optional indicators (VVIX, MOVE, etc.) don't break scoring if unavailable
+- **Stale data flag**: API response indicates when data is from cache after a failed refresh
 
 ## Disclaimer
 

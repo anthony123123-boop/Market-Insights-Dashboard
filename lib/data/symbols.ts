@@ -3,21 +3,46 @@ import type { Capability, DataSource } from '../types';
 /**
  * Data source routing - maps each ticker to its primary data source
  *
- * Sources:
- * - AV (Alpha Vantage): ETFs, equities, FX
- * - STOOQ: VIX and volatility indices (free, no API key)
- * - FRED: Treasury yields and economic data (free with API key)
+ * Sources (Priority Order for Swing/Long-Term):
+ * - STOOQ: PRIMARY for US ETFs/equities (free, no API key, reliable)
+ * - FRED: PRIMARY for VIX (VIXCLS) and Treasury yields (free with API key)
+ * - AV (Alpha Vantage): FALLBACK only (25 req/day limit on free tier)
  * - PROXY: Derived/calculated indicators
+ *
+ * Note: VVIX, VIX9D, VIX3M, SKEW, MOVE are optional - scoring works without them
  */
 
 export type TickerSource = 'AV' | 'STOOQ' | 'FRED' | 'PROXY';
 
 /**
+ * Priority tickers for swing/long-term analysis
+ * These must always have data (from cache if fetch fails)
+ */
+export const PRIORITY_TICKERS = [
+  // Core ETFs
+  'SPY', 'QQQ', 'IWM', 'GLD', 'HYG', 'LQD', 'TLT',
+  // Rates
+  'TNX', 'DGS2', 'IRX',
+  // Sectors
+  'XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC',
+] as const;
+
+/**
+ * Optional tickers - scoring works if these are unavailable
+ */
+export const OPTIONAL_TICKERS = [
+  'VVIX', 'VIX9D', 'VIX3M', 'SKEW', 'MOVE',
+] as const;
+
+/**
  * Source routing for each ticker
  */
 export const TICKER_SOURCES: Record<string, TickerSource> = {
-  // Volatility indices - Stooq (free, no key)
-  VIX: 'STOOQ',
+  // VIX - FRED PRIMARY (VIXCLS series, very reliable)
+  VIX: 'FRED',
+
+  // Optional volatility indices - marked but may not be available
+  // These don't break scoring if missing
   VVIX: 'STOOQ',
   VIX9D: 'STOOQ',
   VIX3M: 'STOOQ',
@@ -29,38 +54,40 @@ export const TICKER_SOURCES: Record<string, TickerSource> = {
   IRX: 'FRED',
   FVX: 'FRED',
   TYX: 'FRED',
+  DGS2: 'FRED',
+  DGS1: 'FRED',
 
-  // ETFs - Alpha Vantage
-  SPY: 'AV',
-  QQQ: 'AV',
-  IWM: 'AV',
-  RSP: 'AV',
-  HYG: 'AV',
-  LQD: 'AV',
-  TLT: 'AV',
-  SHY: 'AV',
-  UUP: 'AV',
-  FXY: 'AV',
-  GLD: 'AV',
-  SLV: 'AV',
-  USO: 'AV',
-  DBA: 'AV',
+  // Core ETFs - STOOQ PRIMARY (free, no key, uses .us suffix)
+  SPY: 'STOOQ',
+  QQQ: 'STOOQ',
+  IWM: 'STOOQ',
+  RSP: 'STOOQ',
+  HYG: 'STOOQ',
+  LQD: 'STOOQ',
+  TLT: 'STOOQ',
+  SHY: 'STOOQ',
+  UUP: 'STOOQ',
+  FXY: 'STOOQ',
+  GLD: 'STOOQ',
+  SLV: 'STOOQ',
+  USO: 'STOOQ',
+  DBA: 'STOOQ',
 
-  // Sector ETFs - Alpha Vantage
-  XLK: 'AV',
-  XLF: 'AV',
-  XLI: 'AV',
-  XLE: 'AV',
-  XLV: 'AV',
-  XLP: 'AV',
-  XLU: 'AV',
-  XLRE: 'AV',
-  XLY: 'AV',
-  XLC: 'AV',
+  // Sector ETFs - STOOQ PRIMARY
+  XLK: 'STOOQ',
+  XLF: 'STOOQ',
+  XLI: 'STOOQ',
+  XLE: 'STOOQ',
+  XLV: 'STOOQ',
+  XLP: 'STOOQ',
+  XLU: 'STOOQ',
+  XLRE: 'STOOQ',
+  XLY: 'STOOQ',
+  XLC: 'STOOQ',
 
-  // FX - Alpha Vantage
-  DXY: 'AV', // Will use UUP as proxy
-  EURUSD: 'AV',
+  // FX - STOOQ via UUP proxy
+  DXY: 'STOOQ', // Uses UUP as proxy
+  EURUSD: 'AV', // Keep on AV as fallback
 };
 
 /**
