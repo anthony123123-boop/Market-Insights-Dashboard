@@ -140,8 +140,8 @@ function parseStooqCSV(csv: string, requestedSymbol: string): StooqParseResult |
   };
 }
 
-// Symbols to log detailed diagnostics for
-const DEBUG_SYMBOLS = ['spy.us', 'qqq.us', 'gld.us', 'uup.us'];
+// Symbols to log detailed diagnostics for (includes GLD for debugging N/A issues)
+const DEBUG_SYMBOLS = ['spy.us', 'qqq.us', 'gld.us', 'uup.us', 'xlk.us', 'xlf.us'];
 
 /**
  * Fetch raw quote from Stooq
@@ -302,7 +302,7 @@ export async function fetchStooqIndicator(logicalTicker: string): Promise<{
 
     return {
       indicator: {
-        displayName: `${logicalTicker} (Stooq)${isStale ? ' [cached]' : ''}`,
+        displayName: logicalTicker,
         price: data.price,
         previousClose: data.previousClose,
         change,

@@ -47,7 +47,8 @@ export function IndicatorPill({
     lg: 'text-3xl',
   };
 
-  const displayName = indicator.displayName || getDisplayName(ticker);
+  // Always use human-readable name from format.ts
+  const displayName = getDisplayName(ticker);
 
   return (
     <FrostedCard className={`${sizeClasses[size]} min-w-0`}>
@@ -116,7 +117,8 @@ export function SmallIndicatorPill({
   indicator: Indicator;
 }) {
   const changeClass = getChangeColorClass(indicator.change);
-  const displayName = indicator.displayName || getDisplayName(ticker);
+  // Always use human-readable name from format.ts
+  const displayName = getDisplayName(ticker);
   const priceDisplay = formatPillPrice(indicator.price, ticker);
   const sourceName = formatSource(indicator.source);
 

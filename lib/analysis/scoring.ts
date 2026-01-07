@@ -400,17 +400,22 @@ const SECTOR_NAMES: Record<string, string> = {
 /**
  * Calculate sector attraction scores using absolute + relative strength
  *
+ * NOTE: Stooq uses open as previousClose (no true prev day close available),
+ * so changePct represents INTRADAY moves (open-to-current), typically 0.1-0.5%.
+ * Coefficients are tuned for these smaller intraday moves.
+ *
  * Formula (changePct is in percentage points, e.g., 0.42 = 0.42%):
  * - Base score = 50
- * - absMove = clamp(sectorPct, -2.5, +2.5) — absolute performance
- *   (±2.5% day is max effect)
- * - relMove = clamp(sectorPct - spyPct, -2.0, +2.0) — relative strength vs SPY
- *   (±2.0% relative outperformance is max effect)
- * - Final score = clamp(50 + absMove * 12 + relMove * 15, 0, 100)
+ * - absMove = clamp(sectorPct, -1.0, +1.0) — absolute intraday performance
+ *   (±1.0% intraday is significant)
+ * - relMove = clamp(sectorPct - spyPct, -0.5, +0.5) — relative strength vs SPY
+ *   (±0.5% relative outperformance intraday is significant)
+ * - Final score = clamp(50 + absMove * 25 + relMove * 50, 0, 100)
  *
  * This ensures:
- * - Absolute strength matters (+30 points max)
- * - Relative strength vs SPY matters more (+30 points max)
+ * - Absolute intraday strength matters (+25 points max)
+ * - Relative strength vs SPY matters more (+25 points max)
+ * - Small intraday moves (0.2-0.3%) produce visible score differences
  * - Scores remain bounded and stable
  */
 export function calculateSectorScores(indicators: Record<string, Indicator>): Sector[] {
@@ -428,14 +433,14 @@ export function calculateSectorScores(indicators: Record<string, Indicator>): Se
 
     const sectorPct = sector.changePct;
 
-    // Absolute performance: ±2.5% day caps contribution at ±30 points
-    const absMove = clamp(sectorPct, -2.5, 2.5);
+    // Absolute intraday performance: ±1.0% caps contribution at ±25 points
+    const absMove = clamp(sectorPct, -1.0, 1.0);
 
-    // Relative strength vs SPY: ±2.0% outperformance caps at ±30 points
-    const relMove = clamp(sectorPct - spyPct, -2.0, 2.0);
+    // Relative strength vs SPY intraday: ±0.5% caps at ±25 points
+    const relMove = clamp(sectorPct - spyPct, -0.5, 0.5);
 
     // Final score: base 50 + weighted components, clamped to 0-100
-    const score = clamp(50 + absMove * 12 + relMove * 15, 0, 100);
+    const score = clamp(50 + absMove * 25 + relMove * 50, 0, 100);
 
     return {
       ticker,

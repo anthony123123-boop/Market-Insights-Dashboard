@@ -235,13 +235,8 @@ function computeDerivedIndicators(
       changePct = previousClose !== 0 ? (change / Math.abs(previousClose)) * 100 : 0;
     }
 
-    // Add source attribution to derived indicators
-    const sourceA = indicatorA.source;
-    const sourceB = indicatorB.source;
-    const sourceSuffix = sourceA === sourceB ? `(${sourceA})` : `(${sourceA}/${sourceB})`;
-
     indicators[derivedTicker] = {
-      displayName: `${getDisplayName(derivedTicker)} ${sourceSuffix}`,
+      displayName: getDisplayName(derivedTicker),
       price,
       previousClose,
       change,

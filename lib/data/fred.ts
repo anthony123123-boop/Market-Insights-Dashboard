@@ -15,17 +15,17 @@ const FRED_BASE_URL = 'https://api.stlouisfed.org/fred/series/observations';
  */
 export const FRED_SERIES: Record<string, { seriesId: string; displayName: string }> = {
   // VIX - CBOE Volatility Index (PRIMARY source for VIX)
-  VIX: { seriesId: 'VIXCLS', displayName: 'VIX (FRED)' },
+  VIX: { seriesId: 'VIXCLS', displayName: 'VIX' },
 
   // Treasury Yields
-  TNX: { seriesId: 'DGS10', displayName: '10Y Treasury (FRED)' },
-  IRX: { seriesId: 'DGS3MO', displayName: '3M T-Bill (FRED)' },
-  FVX: { seriesId: 'DGS5', displayName: '5Y Treasury (FRED)' },
-  TYX: { seriesId: 'DGS30', displayName: '30Y Treasury (FRED)' },
+  TNX: { seriesId: 'DGS10', displayName: '10Y Treasury' },
+  IRX: { seriesId: 'DGS3MO', displayName: '3M T-Bill' },
+  FVX: { seriesId: 'DGS5', displayName: '5Y Treasury' },
+  TYX: { seriesId: 'DGS30', displayName: '30Y Treasury' },
 
   // Additional rates for yield curve
-  DGS2: { seriesId: 'DGS2', displayName: '2Y Treasury (FRED)' },
-  DGS1: { seriesId: 'DGS1', displayName: '1Y Treasury (FRED)' },
+  DGS2: { seriesId: 'DGS2', displayName: '2Y Treasury' },
+  DGS1: { seriesId: 'DGS1', displayName: '1Y Treasury' },
 };
 
 /**
@@ -201,7 +201,7 @@ export async function fetchFredIndicator(logicalTicker: string): Promise<{
 
     return {
       indicator: {
-        displayName: `${fredInfo.displayName}${isStale ? ' [cached]' : ''}`,
+        displayName: fredInfo.displayName,
         price: data.price,
         previousClose: data.previousClose,
         change,
@@ -245,7 +245,7 @@ export async function fetchYieldSpread(): Promise<{
   if (!isFredAvailable()) {
     return {
       indicator: {
-        displayName: '10Y-2Y Spread (FRED)',
+        displayName: '10Y-2Y Spread',
         session: 'NA',
         source: 'FRED' as DataSource,
       },
@@ -288,7 +288,7 @@ export async function fetchYieldSpread(): Promise<{
     if (!data) {
       return {
         indicator: {
-          displayName: '10Y-2Y Spread (FRED)',
+          displayName: '10Y-2Y Spread',
           session: 'NA',
           source: 'FRED' as DataSource,
         },
@@ -305,7 +305,7 @@ export async function fetchYieldSpread(): Promise<{
 
     return {
       indicator: {
-        displayName: `10Y-2Y Spread (FRED)${isStale ? ' [cached]' : ''}`,
+        displayName: '10Y-2Y Spread',
         price: data.spread,
         previousClose: data.prevSpread,
         change,
@@ -325,7 +325,7 @@ export async function fetchYieldSpread(): Promise<{
     console.error('FRED yield spread fetch error:', error);
     return {
       indicator: {
-        displayName: '10Y-2Y Spread (FRED)',
+        displayName: '10Y-2Y Spread',
         session: 'NA',
         source: 'FRED' as DataSource,
       },

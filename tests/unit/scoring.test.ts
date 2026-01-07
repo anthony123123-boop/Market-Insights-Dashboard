@@ -244,10 +244,10 @@ describe('calculateSectorScores', () => {
     source: 'STOOQ',
   });
 
-  // New formula:
-  // absMove = clamp(sectorPct, -2.5, +2.5)
-  // relMove = clamp(sectorPct - spyPct, -2.0, +2.0)
-  // score = clamp(50 + absMove * 12 + relMove * 15, 0, 100)
+  // New formula (tuned for intraday moves since Stooq uses open as previousClose):
+  // absMove = clamp(sectorPct, -1.0, +1.0)
+  // relMove = clamp(sectorPct - spyPct, -0.5, +0.5)
+  // score = clamp(50 + absMove * 25 + relMove * 50, 0, 100)
 
   it('returns score of 50 when sector and SPY have same performance (0%)', () => {
     const indicators: Record<string, Indicator> = {
@@ -277,113 +277,117 @@ describe('calculateSectorScores', () => {
   it('increases score for positive sector performance', () => {
     const indicators: Record<string, Indicator> = {
       SPY: createIndicator(0),
-      XLK: createIndicator(1), // +1% up day
+      XLK: createIndicator(0.5), // +0.5% up (typical intraday move)
     };
 
     const sectors = calculateSectorScores(indicators);
     const xlk = sectors.find((s) => s.ticker === 'XLK');
 
-    // absMove = 1, relMove = 1
-    // score = 50 + 1*12 + 1*15 = 77
-    expect(xlk?.score).toBe(77);
+    // absMove = clamp(0.5, -1, 1) = 0.5
+    // relMove = clamp(0.5 - 0, -0.5, 0.5) = 0.5
+    // score = 50 + 0.5*25 + 0.5*50 = 50 + 12.5 + 25 = 87.5 → 88
+    expect(xlk?.score).toBe(88);
   });
 
   it('decreases score for negative sector performance', () => {
     const indicators: Record<string, Indicator> = {
       SPY: createIndicator(0),
-      XLK: createIndicator(-1), // -1% down day
+      XLK: createIndicator(-0.5), // -0.5% down (typical intraday move)
     };
 
     const sectors = calculateSectorScores(indicators);
     const xlk = sectors.find((s) => s.ticker === 'XLK');
 
-    // absMove = -1, relMove = -1
-    // score = 50 + (-1)*12 + (-1)*15 = 50 - 12 - 15 = 23
-    expect(xlk?.score).toBe(23);
+    // absMove = clamp(-0.5, -1, 1) = -0.5
+    // relMove = clamp(-0.5 - 0, -0.5, 0.5) = -0.5
+    // score = 50 + (-0.5)*25 + (-0.5)*50 = 50 - 12.5 - 25 = 12.5 → 13
+    expect(xlk?.score).toBe(13);
   });
 
   it('calculates relative strength vs SPY correctly', () => {
     const indicators: Record<string, Indicator> = {
-      SPY: createIndicator(0.5), // SPY up 0.5%
-      XLK: createIndicator(1.5), // XLK up 1.5% (outperforming by 1%)
+      SPY: createIndicator(0.2), // SPY up 0.2%
+      XLK: createIndicator(0.5), // XLK up 0.5% (outperforming by 0.3%)
     };
 
     const sectors = calculateSectorScores(indicators);
     const xlk = sectors.find((s) => s.ticker === 'XLK');
 
-    // absMove = 1.5, relMove = 1.0
-    // score = 50 + 1.5*12 + 1.0*15 = 50 + 18 + 15 = 83
-    expect(xlk?.score).toBe(83);
+    // absMove = clamp(0.5, -1, 1) = 0.5
+    // relMove = clamp(0.5 - 0.2, -0.5, 0.5) = 0.3
+    // score = 50 + 0.5*25 + 0.3*50 = 50 + 12.5 + 15 = 77.5 → 78
+    expect(xlk?.score).toBe(78);
   });
 
   it('handles sector underperforming SPY', () => {
     const indicators: Record<string, Indicator> = {
-      SPY: createIndicator(1), // SPY up 1%
-      XLK: createIndicator(0), // XLK flat (underperforming by 1%)
+      SPY: createIndicator(0.4), // SPY up 0.4%
+      XLK: createIndicator(0), // XLK flat (underperforming by 0.4%)
     };
 
     const sectors = calculateSectorScores(indicators);
     const xlk = sectors.find((s) => s.ticker === 'XLK');
 
-    // absMove = 0, relMove = -1
-    // score = 50 + 0*12 + (-1)*15 = 50 - 15 = 35
-    expect(xlk?.score).toBe(35);
+    // absMove = clamp(0, -1, 1) = 0
+    // relMove = clamp(0 - 0.4, -0.5, 0.5) = -0.4
+    // score = 50 + 0*25 + (-0.4)*50 = 50 - 20 = 30
+    expect(xlk?.score).toBe(30);
   });
 
-  it('clamps absMove at ±2.5 for extreme moves', () => {
+  it('clamps absMove at ±1.0 for extreme intraday moves', () => {
     const indicators: Record<string, Indicator> = {
       SPY: createIndicator(0),
-      XLK: createIndicator(5), // +5% extreme up day (capped at 2.5)
+      XLK: createIndicator(2), // +2% extreme intraday move (capped at 1.0)
     };
 
     const sectors = calculateSectorScores(indicators);
     const xlk = sectors.find((s) => s.ticker === 'XLK');
 
-    // absMove = clamp(5, -2.5, 2.5) = 2.5
-    // relMove = clamp(5, -2, 2) = 2
-    // score = 50 + 2.5*12 + 2*15 = 50 + 30 + 30 = 110 → clamped to 100
+    // absMove = clamp(2, -1, 1) = 1.0
+    // relMove = clamp(2, -0.5, 0.5) = 0.5
+    // score = 50 + 1.0*25 + 0.5*50 = 50 + 25 + 25 = 100
     expect(xlk?.score).toBe(100);
   });
 
   it('clamps total score between 0 and 100', () => {
     const indicators: Record<string, Indicator> = {
-      SPY: createIndicator(-3), // SPY down 3%
-      XLK: createIndicator(3), // XLK up 3% (massive outperformance of 6%)
+      SPY: createIndicator(-1), // SPY down 1%
+      XLK: createIndicator(1), // XLK up 1% (outperformance of 2%)
     };
 
     const sectors = calculateSectorScores(indicators);
     const xlk = sectors.find((s) => s.ticker === 'XLK');
 
-    // absMove = clamp(3, -2.5, 2.5) = 2.5
-    // relMove = clamp(3 - -3, -2, 2) = clamp(6, -2, 2) = 2
-    // score = clamp(50 + 2.5*12 + 2*15, 0, 100) = clamp(110, 0, 100) = 100
+    // absMove = clamp(1, -1, 1) = 1.0
+    // relMove = clamp(1 - -1, -0.5, 0.5) = clamp(2, -0.5, 0.5) = 0.5
+    // score = clamp(50 + 1.0*25 + 0.5*50, 0, 100) = clamp(100, 0, 100) = 100
     expect(xlk?.score).toBe(100);
     expect(xlk?.score).toBeLessThanOrEqual(100);
   });
 
   it('handles negative extreme moves', () => {
     const indicators: Record<string, Indicator> = {
-      SPY: createIndicator(2), // SPY up 2%
-      XLK: createIndicator(-3), // XLK down 3% (underperformance of 5%)
+      SPY: createIndicator(0.5), // SPY up 0.5%
+      XLK: createIndicator(-1), // XLK down 1% (underperformance of 1.5%)
     };
 
     const sectors = calculateSectorScores(indicators);
     const xlk = sectors.find((s) => s.ticker === 'XLK');
 
-    // absMove = clamp(-3, -2.5, 2.5) = -2.5
-    // relMove = clamp(-3 - 2, -2, 2) = clamp(-5, -2, 2) = -2
-    // score = clamp(50 + (-2.5)*12 + (-2)*15, 0, 100) = clamp(50 - 30 - 30, 0, 100) = clamp(-10, 0, 100) = 0
+    // absMove = clamp(-1, -1, 1) = -1.0
+    // relMove = clamp(-1 - 0.5, -0.5, 0.5) = clamp(-1.5, -0.5, 0.5) = -0.5
+    // score = clamp(50 + (-1.0)*25 + (-0.5)*50, 0, 100) = clamp(50 - 25 - 25, 0, 100) = 0
     expect(xlk?.score).toBe(0);
     expect(xlk?.score).toBeGreaterThanOrEqual(0);
   });
 
   it('produces varied scores for different sectors', () => {
     const indicators: Record<string, Indicator> = {
-      SPY: createIndicator(0.3),
-      XLK: createIndicator(0.8), // Tech outperforming
+      SPY: createIndicator(0.1),
+      XLK: createIndicator(0.4), // Tech outperforming
       XLF: createIndicator(-0.2), // Financials underperforming
-      XLE: createIndicator(1.0), // Energy strong
-      XLU: createIndicator(-0.5), // Utilities weak
+      XLE: createIndicator(0.6), // Energy strong
+      XLU: createIndicator(-0.3), // Utilities weak
     };
 
     const sectors = calculateSectorScores(indicators);
