@@ -9,9 +9,22 @@ import { getETTimestamp } from '../time';
  *
  * Symbol format: {ticker}.us for US securities
  * Example: spy.us, qqq.us, gld.us, xlf.us
+ *
+ * IMPORTANT: Stooq rate-limits aggressive parallel requests.
+ * This module implements sequential fetching with delays.
  */
 
+// Correct URL format: https://stooq.com/q/l/?s={symbol}&i=d
 const STOOQ_BASE_URL = 'https://stooq.com/q/l/';
+
+// Delay between sequential Stooq requests (ms)
+const STOOQ_REQUEST_DELAY_MS = 200;
+
+// Max retries per symbol
+const MAX_RETRIES = 2;
+
+// Retry backoff base (ms)
+const RETRY_BACKOFF_MS = 500;
 
 /**
  * Complete mapping of logical tickers to Stooq symbols
@@ -86,11 +99,79 @@ interface StooqParseResult {
 }
 
 /**
+ * Browser-like headers to avoid being blocked
+ */
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/csv,text/plain,*/*;q=0.9',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Connection': 'keep-alive',
+  'Cache-Control': 'no-cache',
+};
+
+/**
+ * Clean CSV response - handle BOM, whitespace, etc.
+ */
+function cleanCsvResponse(raw: string): string {
+  // Remove BOM if present
+  let csv = raw.replace(/^\uFEFF/, '');
+
+  // Trim whitespace
+  csv = csv.trim();
+
+  // Normalize line endings
+  csv = csv.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  return csv;
+}
+
+/**
+ * Check if response looks like HTML (error page) instead of CSV
+ */
+function isHtmlResponse(text: string): boolean {
+  const lower = text.toLowerCase();
+  return lower.includes('<html') || lower.includes('<!doctype') || lower.includes('<head');
+}
+
+/**
+ * Check if response looks like valid CSV
+ */
+function isValidCsv(text: string): boolean {
+  const lines = text.split('\n').filter(line => line.trim().length > 0);
+  if (lines.length < 2) return false;
+
+  // First line should be header with commas
+  const headerCommas = (lines[0].match(/,/g) || []).length;
+  if (headerCommas < 3) return false;
+
+  // Second line should have similar structure
+  const dataCommas = (lines[1].match(/,/g) || []).length;
+  if (dataCommas < 3) return false;
+
+  return true;
+}
+
+/**
  * Parse Stooq CSV response
  * Format: Symbol,Date,Time,Open,High,Low,Close,Volume
  */
 function parseStooqCSV(csv: string, requestedSymbol: string): StooqParseResult | null {
-  const lines = csv.trim().split('\n');
+  const cleaned = cleanCsvResponse(csv);
+
+  // Check for HTML response (error page)
+  if (isHtmlResponse(cleaned)) {
+    console.warn(`[Stooq] Got HTML instead of CSV for ${requestedSymbol}`);
+    return null;
+  }
+
+  // Check if it looks like valid CSV
+  if (!isValidCsv(cleaned)) {
+    console.warn(`[Stooq] Invalid CSV format for ${requestedSymbol}`);
+    return null;
+  }
+
+  const lines = cleaned.split('\n').filter(line => line.trim().length > 0);
 
   if (lines.length < 2) {
     console.warn(`[Stooq] CSV too short for ${requestedSymbol}: ${lines.length} lines`);
@@ -100,21 +181,22 @@ function parseStooqCSV(csv: string, requestedSymbol: string): StooqParseResult |
   const header = lines[0].toLowerCase();
   const dataLine = lines[1];
 
-  // Verify header format
-  if (!header.includes('symbol') || !header.includes('close')) {
-    console.warn(`[Stooq] Unexpected header for ${requestedSymbol}: ${header}`);
+  // Verify header format - be flexible about exact format
+  if (!header.includes('symbol') && !header.includes('date')) {
+    console.warn(`[Stooq] Unexpected header for ${requestedSymbol}: ${header.substring(0, 100)}`);
     return null;
   }
 
-  const values = dataLine.split(',');
+  // Split values, handling trailing commas
+  const values = dataLine.split(',').map(v => v.trim());
 
   // Check for "N/D" (No Data) markers
-  if (values.some(v => v.trim() === 'N/D')) {
-    console.warn(`[Stooq] No data (N/D) for ${requestedSymbol}`);
+  if (values.some(v => v === 'N/D' || v === 'N/A')) {
+    console.warn(`[Stooq] No data marker for ${requestedSymbol}`);
     return null;
   }
 
-  // Check we have enough fields
+  // Check we have enough fields (at least 7: symbol,date,time,open,high,low,close)
   if (values.length < 7) {
     console.warn(`[Stooq] Insufficient fields for ${requestedSymbol}: ${values.length}`);
     return null;
@@ -132,7 +214,7 @@ function parseStooqCSV(csv: string, requestedSymbol: string): StooqParseResult |
     symbol: values[0],
     date: values[1],
     time: values[2],
-    open: isNaN(open) ? close : open,
+    open: isNaN(open) || open <= 0 ? close : open,
     high: parseFloat(values[4]) || close,
     low: parseFloat(values[5]) || close,
     close,
@@ -140,48 +222,51 @@ function parseStooqCSV(csv: string, requestedSymbol: string): StooqParseResult |
   };
 }
 
-// Symbols to log detailed diagnostics for (includes GLD for debugging N/A issues)
-const DEBUG_SYMBOLS = ['spy.us', 'qqq.us', 'gld.us', 'uup.us', 'xlk.us', 'xlf.us'];
+/**
+ * Sleep helper
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Symbols to log detailed diagnostics for
+const DEBUG_SYMBOLS = ['spy.us', 'qqq.us', 'gld.us', 'xlk.us'];
 
 /**
- * Fetch raw quote from Stooq
+ * Fetch raw quote from Stooq with retry logic
  */
-async function fetchStooqRaw(stooqSymbol: string): Promise<{
+async function fetchStooqRaw(stooqSymbol: string, retryCount = 0): Promise<{
   price: number;
   previousClose: number;
   date: string;
   rawCsv: string;
 } | null> {
-  // Stooq CSV endpoint: s=symbol, f=fields, h=header, e=csv
-  // Fields: s=symbol, d2=date, t2=time, o=open, h=high, l=low, c=close, v=volume
-  const url = `${STOOQ_BASE_URL}?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcv&h&e=csv`;
+  // Correct URL format: s=symbol, i=d (daily interval)
+  const url = `${STOOQ_BASE_URL}?s=${encodeURIComponent(stooqSymbol)}&i=d`;
   const isDebugSymbol = DEBUG_SYMBOLS.includes(stooqSymbol.toLowerCase());
 
-  if (isDebugSymbol) {
-    console.log(`[Stooq:DEBUG] Fetching ${stooqSymbol} from URL: ${url}`);
-  } else {
-    console.log(`[Stooq] Fetching: ${stooqSymbol}`);
+  if (isDebugSymbol || retryCount > 0) {
+    console.log(`[Stooq] Fetching ${stooqSymbol} (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`);
   }
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
 
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/csv, text/plain, */*',
-      },
+      headers: BROWSER_HEADERS,
     });
 
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      if (isDebugSymbol) {
-        console.error(`[Stooq:DEBUG] HTTP ${response.status} for ${stooqSymbol} - FAILED`);
-      } else {
-        console.warn(`[Stooq] HTTP ${response.status} for ${stooqSymbol}`);
+      console.warn(`[Stooq] HTTP ${response.status} for ${stooqSymbol}`);
+
+      // Retry on server errors
+      if (response.status >= 500 && retryCount < MAX_RETRIES) {
+        await sleep(RETRY_BACKOFF_MS * (retryCount + 1));
+        return fetchStooqRaw(stooqSymbol, retryCount + 1);
       }
       return null;
     }
@@ -189,35 +274,48 @@ async function fetchStooqRaw(stooqSymbol: string): Promise<{
     const csv = await response.text();
 
     if (!csv || csv.length < 20) {
-      if (isDebugSymbol) {
-        console.error(`[Stooq:DEBUG] Empty response for ${stooqSymbol}, length=${csv?.length || 0}`);
-      } else {
-        console.warn(`[Stooq] Empty response for ${stooqSymbol}`);
+      console.warn(`[Stooq] Empty response for ${stooqSymbol}`);
+
+      // Retry on empty response
+      if (retryCount < MAX_RETRIES) {
+        await sleep(RETRY_BACKOFF_MS * (retryCount + 1));
+        return fetchStooqRaw(stooqSymbol, retryCount + 1);
+      }
+      return null;
+    }
+
+    // Check if we got HTML instead of CSV (rate limited or error page)
+    if (isHtmlResponse(csv)) {
+      console.warn(`[Stooq] Got HTML instead of CSV for ${stooqSymbol} - may be rate limited`);
+
+      // Retry with longer delay
+      if (retryCount < MAX_RETRIES) {
+        await sleep(RETRY_BACKOFF_MS * 2 * (retryCount + 1));
+        return fetchStooqRaw(stooqSymbol, retryCount + 1);
       }
       return null;
     }
 
     if (isDebugSymbol) {
-      console.log(`[Stooq:DEBUG] Raw CSV for ${stooqSymbol}:\n${csv.substring(0, 200)}`);
+      console.log(`[Stooq:DEBUG] Raw CSV for ${stooqSymbol}:\n${csv.substring(0, 300)}`);
     }
 
     const parsed = parseStooqCSV(csv, stooqSymbol);
 
     if (!parsed) {
-      if (isDebugSymbol) {
-        console.error(`[Stooq:DEBUG] Failed to parse CSV for ${stooqSymbol}`);
+      // Retry on parse failure
+      if (retryCount < MAX_RETRIES) {
+        await sleep(RETRY_BACKOFF_MS * (retryCount + 1));
+        return fetchStooqRaw(stooqSymbol, retryCount + 1);
       }
       return null;
     }
 
-    // Use open as previous close (Stooq doesn't provide prev close in quote API)
-    // This is an approximation - for more accurate prev close, would need historical data
+    // Use open as previous close (Stooq quote API doesn't provide prev close)
     const previousClose = parsed.open;
 
     if (isDebugSymbol) {
       console.log(`[Stooq:DEBUG] SUCCESS ${stooqSymbol}: price=${parsed.close}, open=${parsed.open}, date=${parsed.date}`);
-    } else {
-      console.log(`[Stooq] Success: ${stooqSymbol} price=${parsed.close} open=${parsed.open}`);
     }
 
     return {
@@ -232,12 +330,18 @@ async function fetchStooqRaw(stooqSymbol: string): Promise<{
     } else {
       console.error(`[Stooq] Fetch error for ${stooqSymbol}:`, error);
     }
+
+    // Retry on network errors
+    if (retryCount < MAX_RETRIES) {
+      await sleep(RETRY_BACKOFF_MS * (retryCount + 1));
+      return fetchStooqRaw(stooqSymbol, retryCount + 1);
+    }
     return null;
   }
 }
 
 /**
- * Fetch indicator from Stooq
+ * Fetch indicator from Stooq (single symbol)
  */
 export async function fetchStooqIndicator(logicalTicker: string): Promise<{
   indicator: Indicator;
@@ -334,6 +438,52 @@ export async function fetchStooqIndicator(logicalTicker: string): Promise<{
       },
     };
   }
+}
+
+/**
+ * Fetch multiple Stooq indicators SEQUENTIALLY with delays
+ * This is critical for avoiding rate limits on Netlify
+ */
+export async function fetchStooqIndicatorsSequential(tickers: string[]): Promise<{
+  indicators: Record<string, Indicator>;
+  capabilities: Record<string, Capability>;
+}> {
+  const indicators: Record<string, Indicator> = {};
+  const capabilities: Record<string, Capability> = {};
+
+  console.log(`[Stooq] Fetching ${tickers.length} symbols sequentially with ${STOOQ_REQUEST_DELAY_MS}ms delay`);
+
+  for (let i = 0; i < tickers.length; i++) {
+    const ticker = tickers[i];
+
+    // Add delay between requests (except for the first one)
+    if (i > 0) {
+      await sleep(STOOQ_REQUEST_DELAY_MS);
+    }
+
+    try {
+      const result = await fetchStooqIndicator(ticker);
+      indicators[ticker] = result.indicator;
+      capabilities[ticker] = result.capability;
+    } catch (error) {
+      console.error(`[Stooq] Error fetching ${ticker}:`, error);
+      indicators[ticker] = {
+        displayName: ticker,
+        session: 'NA',
+        source: 'STOOQ' as DataSource,
+      };
+      capabilities[ticker] = {
+        ok: false,
+        reason: `Error: ${error instanceof Error ? error.message : 'Unknown'}`,
+        sourceUsed: 'STOOQ' as DataSource,
+      };
+    }
+  }
+
+  const successCount = Object.values(capabilities).filter(c => c.ok).length;
+  console.log(`[Stooq] Completed: ${successCount}/${tickers.length} symbols successful`);
+
+  return { indicators, capabilities };
 }
 
 /**
