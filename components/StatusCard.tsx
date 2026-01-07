@@ -11,8 +11,8 @@ interface StatusCardProps {
 }
 
 /**
- * Combined Risk Status + Analysis Details card
- * Shows risk label, plan summary, and analysis bullets in one card
+ * Tall sidebar card showing Risk Status + Analysis Details
+ * Designed to span from gauges row down to sector chart row
  */
 export function StatusCard({ status, scores }: StatusCardProps) {
   const avgScore = Math.round((scores.short + scores.medium + scores.long) / 3);
@@ -21,33 +21,38 @@ export function StatusCard({ status, scores }: StatusCardProps) {
   return (
     <FrostedCard className={`h-full flex flex-col ${colors.glow}`}>
       {/* Risk Status Header */}
-      <div className="flex items-center justify-between mb-2 flex-shrink-0">
+      <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <span className={`text-2xl font-bold ${colors.text}`}>{status.label}</span>
         <Tooltip
           content={
             <div className="space-y-1 text-sm">
               <div>Overall market stance based on multiple indicators</div>
+              <div className="text-xs text-gray-400 mt-1">
+                Avg Score: {avgScore}/100
+              </div>
             </div>
           }
         />
       </div>
 
       {/* Plan summary */}
-      <p className="text-sm text-gray-300 mb-3 flex-shrink-0">{status.plan}</p>
+      <p className="text-sm text-gray-300 mb-4 flex-shrink-0 leading-relaxed">
+        {status.plan}
+      </p>
 
       {/* Divider */}
-      <div className="border-t border-white/10 my-2 flex-shrink-0" />
+      <div className="border-t border-white/10 my-3 flex-shrink-0" />
 
-      {/* Analysis Details */}
+      {/* Analysis Details - scrollable if too many bullets */}
       <div className="flex-grow overflow-hidden flex flex-col min-h-0">
-        <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 flex-shrink-0">
+        <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3 flex-shrink-0">
           Analysis Details
         </h4>
-        <ul className="space-y-2 overflow-y-auto flex-grow">
-          {status.bullets.slice(0, 6).map((bullet, index) => (
-            <li key={index} className="flex items-start gap-2 text-xs text-gray-300">
-              <span className={`mt-0.5 flex-shrink-0 ${colors.text}`}>•</span>
-              <span className="line-clamp-2">{bullet}</span>
+        <ul className="space-y-3 overflow-y-auto flex-grow pr-1">
+          {status.bullets.map((bullet, index) => (
+            <li key={index} className="flex items-start gap-2 text-sm text-gray-300">
+              <span className={`mt-1 flex-shrink-0 ${colors.text}`}>•</span>
+              <span className="leading-relaxed">{bullet}</span>
             </li>
           ))}
         </ul>
