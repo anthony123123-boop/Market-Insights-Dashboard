@@ -87,6 +87,13 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchData, settings.refreshInterval]);
 
+  // DEBUG: Log sector scores when data changes (remove after verifying)
+  useEffect(() => {
+    if (data?.sectors) {
+      console.log('SECTOR SCORES FROM API:', data.sectors);
+    }
+  }, [data?.sectors]);
+
   // Density classes
   const densityClasses = settings.density === 'compact' ? 'gap-3 p-3' : 'gap-4 p-4';
   const cardPadding = settings.density === 'compact' ? 'p-3' : 'p-4';

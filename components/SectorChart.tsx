@@ -16,6 +16,9 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
     ? [...sectors].sort((a, b) => b.score - a.score)
     : sectors;
 
+  // DEBUG: Remove after verifying sector data flow
+  console.log("SECTORS RENDERED:", displaySectors);
+
   const maxScore = 100;
 
   return (
