@@ -398,55 +398,42 @@ const SECTOR_NAMES: Record<string, string> = {
 };
 
 /**
- * Calculate sector attraction scores using absolute + relative strength
+ * Calculate sector attraction scores from price data
  *
- * NOTE: Stooq uses open as previousClose (no true prev day close available),
- * so changePct represents INTRADAY moves (open-to-current), typically 0.1-0.5%.
- * Coefficients are tuned for these smaller intraday moves.
+ * Formula: score = clamp(50 + pct * 1000, 0, 100)
+ * where pct = (price - previousClose) / previousClose (decimal)
  *
- * Formula (changePct is in percentage points, e.g., 0.42 = 0.42%):
- * - Base score = 50
- * - absMove = clamp(sectorPct, -1.0, +1.0) — absolute intraday performance
- *   (±1.0% intraday is significant)
- * - relMove = clamp(sectorPct - spyPct, -0.5, +0.5) — relative strength vs SPY
- *   (±0.5% relative outperformance intraday is significant)
- * - Final score = clamp(50 + absMove * 25 + relMove * 50, 0, 100)
+ * Examples:
+ * - +1% move => 50 + 0.01 * 1000 = 60
+ * - -1% move => 50 + (-0.01) * 1000 = 40
+ * - +5% move => 50 + 0.05 * 1000 = 100 (clamped)
  *
- * This ensures:
- * - Absolute intraday strength matters (+25 points max)
- * - Relative strength vs SPY matters more (+25 points max)
- * - Small intraday moves (0.2-0.3%) produce visible score differences
- * - Scores remain bounded and stable
+ * Returns 50 only if sector data is missing.
  */
 export function calculateSectorScores(indicators: Record<string, Indicator>): Sector[] {
-  const spy = indicators['SPY'];
-  const spyPct = spy?.changePct ?? 0;
-
   return SECTOR_ETFS.map((ticker) => {
     const sector = indicators[ticker];
     const name = SECTOR_NAMES[ticker] || ticker;
 
-    // If no data, return neutral score with muted styling indicator
-    if (sector?.changePct === undefined) {
+    // Check if indicator exists
+    if (!sector) {
+      console.warn(`[SectorScoring] ${ticker}: missing indicator entirely`);
       return { ticker, score: 50, name };
     }
 
-    const sectorPct = sector.changePct;
+    // Check if we have price data
+    if (sector.price === undefined || sector.previousClose === undefined) {
+      console.warn(`[SectorScoring] ${ticker}: missing price data (price=${sector.price}, previousClose=${sector.previousClose})`);
+      return { ticker, score: 50, name };
+    }
 
-    // Absolute intraday performance: ±1.0% caps contribution at ±25 points
-    const absMove = clamp(sectorPct, -1.0, 1.0);
+    // Calculate percentage change as decimal
+    const pct = (sector.price - sector.previousClose) / sector.previousClose;
 
-    // Relative strength vs SPY intraday: ±0.5% caps at ±25 points
-    const relMove = clamp(sectorPct - spyPct, -0.5, 0.5);
+    // Score: +1% => 60, -1% => 40
+    const score = Math.round(Math.max(0, Math.min(100, 50 + pct * 1000)));
 
-    // Final score: base 50 + weighted components, clamped to 0-100
-    const score = clamp(50 + absMove * 25 + relMove * 50, 0, 100);
-
-    return {
-      ticker,
-      score: Math.round(score),
-      name,
-    };
+    return { ticker, score, name };
   });
 }
 
