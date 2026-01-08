@@ -109,6 +109,35 @@ export function isFXTicker(ticker: string): boolean {
 }
 
 /**
+ * Determine if ticker is a yield/rate for formatting
+ */
+export function isYieldTicker(ticker: string): boolean {
+  const yieldTickers = ['TNX', 'IRX', 'FVX', 'TYX', 'DGS2', 'DGS1', 'YIELD_10Y_2Y'];
+  return yieldTickers.includes(ticker.toUpperCase());
+}
+
+/**
+ * Format price for small pills (ticker-aware)
+ * - FX: 4 decimals
+ * - Yields: 2 decimals (percentage)
+ * - ETFs/equities: 2 decimals with $ prefix
+ */
+export function formatPillPrice(price: number | undefined, ticker: string): string {
+  if (price === undefined || price === null || isNaN(price)) return '—';
+
+  if (isFXTicker(ticker)) {
+    return price.toFixed(4);
+  }
+
+  if (isYieldTicker(ticker)) {
+    return price.toFixed(2) + '%';
+  }
+
+  // Default: ETF/equity with dollar sign
+  return '$' + price.toFixed(2);
+}
+
+/**
  * Get display name for ticker
  */
 export function getDisplayName(ticker: string): string {

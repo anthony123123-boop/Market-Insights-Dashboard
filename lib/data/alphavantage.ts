@@ -255,7 +255,7 @@ export async function fetchAVEquityIndicator(symbol: string): Promise<{
 async function fetchFXDailyRaw(fromCurrency: string, toCurrency: string): Promise<AVFXDaily | null> {
   const apiKey = getAPIKey();
   if (!apiKey) {
-    console.warn('Alpha Vantage API key not set');
+    console.warn('[AV] API key not set');
     return null;
   }
 
@@ -265,27 +265,32 @@ async function fetchFXDailyRaw(fromCurrency: string, toCurrency: string): Promis
     const response = await fetch(url);
 
     if (!response.ok) {
-      console.warn(`Alpha Vantage request failed: ${response.status}`);
+      console.warn(`[AV] FX HTTP ${response.status} for ${fromCurrency}/${toCurrency}`);
       return null;
     }
 
     const data = await response.json();
 
     // Check for rate limiting
-    if (data.Note || data.Information) {
-      console.warn('Alpha Vantage rate limited:', data.Note || data.Information);
+    if (data.Note) {
+      console.warn(`[AV] FX rate limited: ${data.Note}`);
+      return null;
+    }
+
+    if (data.Information) {
+      console.warn(`[AV] FX information: ${data.Information}`);
       return null;
     }
 
     // Check for error
     if (data['Error Message']) {
-      console.warn('Alpha Vantage error:', data['Error Message']);
+      console.warn(`[AV] FX error: ${data['Error Message']}`);
       return null;
     }
 
     return data as AVFXDaily;
   } catch (error) {
-    console.error('Alpha Vantage fetch error:', error);
+    console.error('[AV] FX fetch error:', error);
     return null;
   }
 }
@@ -321,7 +326,7 @@ export async function fetchFXIndicator(
         },
         capability: {
           ok: false,
-          reason: 'No data from Alpha Vantage',
+          reason: 'No FX data from Alpha Vantage',
           sourceUsed: 'AV' as DataSource,
         },
       };
@@ -339,7 +344,7 @@ export async function fetchFXIndicator(
         },
         capability: {
           ok: false,
-          reason: 'Insufficient data from Alpha Vantage',
+          reason: 'Insufficient FX data from Alpha Vantage',
           sourceUsed: 'AV' as DataSource,
         },
       };
@@ -372,7 +377,7 @@ export async function fetchFXIndicator(
       },
     };
   } catch (error) {
-    console.error(`Failed to fetch FX ${logicalTicker} from Alpha Vantage:`, error);
+    console.error(`[AV] FX error for ${logicalTicker}:`, error);
     return {
       indicator: {
         displayName: logicalTicker,

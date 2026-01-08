@@ -53,7 +53,15 @@ export async function GET(request: NextRequest) {
     const status = generateStatus(scores, categoryScores, indicators, missingCategories);
 
     // Calculate sector scores
+    // DEBUG: Log sector ETF indicators before scoring
+    const sectorTickers = ['XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC'];
+    console.log('[API:DEBUG] Sector ETF indicators:');
+    for (const t of sectorTickers) {
+      const ind = indicators[t];
+      console.log(`  ${t}: price=${ind?.price}, previousClose=${ind?.previousClose}, changePct=${ind?.changePct}`);
+    }
     const sectors = calculateSectorScores(indicators);
+    console.log('[API:DEBUG] Computed sector scores:', sectors.map(s => `${s.ticker}:${s.score}`).join(', '));
 
     // Build response
     const response: MarketDataResponse = {

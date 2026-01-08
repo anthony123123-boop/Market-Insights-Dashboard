@@ -13,8 +13,9 @@ export { fetchFredIndicator, fetchYieldSpread, isFredTicker, isFredAvailable, ge
 export { fetchAllMarketData, fetchHistoricalData } from './fetcher';
 export {
   TICKER_SOURCES,
-  PROXY_MAPPINGS,
   DERIVED_TICKERS,
+  PRIORITY_TICKERS,
+  OPTIONAL_TICKERS,
   isDerivedTicker,
   getDerivedComponents,
   getAllTickers,

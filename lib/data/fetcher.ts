@@ -1,7 +1,6 @@
-import { fetchAVEquityIndicator, fetchFXIndicator, isAlphaVantageAvailable, AV_FX_PAIRS } from './alphavantage';
-import { fetchStooqIndicator, isStooqTicker } from './stooq';
-import { fetchFredIndicator, fetchYieldSpread, isFredTicker, isFredAvailable } from './fred';
-import { getBaseTickers, isDerivedTicker, getDerivedComponents, DERIVED_TICKERS, getTickerSource, PROXY_MAPPINGS } from './symbols';
+import { fetchStooqIndicator, fetchStooqIndicatorsSequential } from './stooq';
+import { fetchFredIndicator, fetchYieldSpread, isFredAvailable } from './fred';
+import { getBaseTickers, isDerivedTicker, getDerivedComponents, DERIVED_TICKERS, getTickerSource, OPTIONAL_TICKERS } from './symbols';
 import { cache, CACHE_TTL, generateCacheKey } from './cache';
 import type { Indicator, Capability, CacheState, Warning, DataSource } from '../types';
 import { getETTimestamp } from '../time';
@@ -19,7 +18,18 @@ interface FetchResult {
 }
 
 /**
+ * Check if a ticker is optional (scoring works without it)
+ */
+function isOptionalTicker(ticker: string): boolean {
+  return (OPTIONAL_TICKERS as readonly string[]).includes(ticker);
+}
+
+/**
  * Fetch a single indicator from the appropriate source
+ * Sources:
+ * - STOOQ: PRIMARY for US ETFs/equities (uses .us suffix)
+ * - FRED: PRIMARY for VIX (VIXCLS) and Treasury yields
+ * - AV: Not used (25 req/day limit - too restrictive)
  */
 async function fetchIndicatorBySource(ticker: string): Promise<{
   indicator: Indicator;
@@ -35,33 +45,20 @@ async function fetchIndicatorBySource(ticker: string): Promise<{
       return fetchFredIndicator(ticker);
 
     case 'AV':
-      // Check if it's an FX pair
-      if (ticker in AV_FX_PAIRS) {
-        const pair = AV_FX_PAIRS[ticker];
-        return fetchFXIndicator(ticker, pair.from, pair.to);
-      }
-
-      // Check for DXY which needs special handling (use UUP as proxy)
-      if (ticker === 'DXY') {
-        // DXY doesn't have a direct AV symbol, use UUP as proxy
-        const result = await fetchAVEquityIndicator('UUP');
-        if (result.capability.ok) {
-          return {
-            indicator: {
-              ...result.indicator,
-              displayName: 'USD Index (UUP proxy)',
-            },
-            capability: {
-              ...result.capability,
-              isProxy: true,
-            },
-          };
-        }
-        return result;
-      }
-
-      // Regular equity/ETF
-      return fetchAVEquityIndicator(ticker);
+      // AV is not used - return unavailable
+      console.warn(`[Fetcher] Ticker ${ticker} mapped to AV but AV is disabled`);
+      return {
+        indicator: {
+          displayName: ticker,
+          session: 'NA',
+          source: 'AV' as DataSource,
+        },
+        capability: {
+          ok: false,
+          reason: 'AlphaVantage disabled (25 req/day limit)',
+          sourceUsed: 'AV' as DataSource,
+        },
+      };
 
     default:
       return {
@@ -79,7 +76,10 @@ async function fetchIndicatorBySource(ticker: string): Promise<{
 }
 
 /**
- * Fetch all base indicators in parallel (with rate limiting awareness)
+ * Fetch all base indicators
+ * - Stooq: SEQUENTIAL with delays to avoid rate limits
+ * - FRED: Parallel (has proper rate limiting)
+ * Optional indicators (VIX) don't generate warnings if missing.
  */
 async function fetchAllBaseIndicators(tickers: string[]): Promise<{
   indicators: Record<string, Indicator>;
@@ -90,71 +90,120 @@ async function fetchAllBaseIndicators(tickers: string[]): Promise<{
   const capabilities: Record<string, Capability> = {};
   const warnings: Warning[] = [];
 
-  // Group tickers by source for efficient fetching
-  const bySource: Record<string, string[]> = {
-    AV: [],
-    STOOQ: [],
-    FRED: [],
-  };
+  // Group tickers by source
+  const stooqTickers: string[] = [];
+  const fredTickers: string[] = [];
+  const otherTickers: string[] = [];
 
   for (const ticker of tickers) {
     const source = getTickerSource(ticker);
-    if (source !== 'PROXY') {
-      bySource[source] = bySource[source] || [];
-      bySource[source].push(ticker);
+    if (source === 'STOOQ') {
+      stooqTickers.push(ticker);
+    } else if (source === 'FRED') {
+      fredTickers.push(ticker);
+    } else if (source !== 'PROXY') {
+      otherTickers.push(ticker);
     }
   }
 
-  // Check data source availability
-  if (!isAlphaVantageAvailable() && bySource.AV.length > 0) {
-    warnings.push({
-      code: 'AV_UNAVAILABLE',
-      message: 'Alpha Vantage API key not configured - ETF/equity data unavailable',
-    });
-  }
+  console.log(`[Fetcher] Tickers by source: Stooq=${stooqTickers.length}, FRED=${fredTickers.length}, Other=${otherTickers.length}`);
 
-  if (!isFredAvailable() && bySource.FRED.length > 0) {
+  // Check FRED availability
+  if (!isFredAvailable() && fredTickers.length > 0) {
     warnings.push({
       code: 'FRED_UNAVAILABLE',
-      message: 'FRED API key not configured - Treasury yield data unavailable',
+      message: 'FRED API key not configured - VIX and Treasury yield data unavailable',
     });
   }
 
-  // Fetch all indicators in parallel
-  // Note: We batch requests to avoid overwhelming rate limits
-  const results = await Promise.all(
-    tickers.map(async (ticker) => {
-      try {
-        const result = await fetchIndicatorBySource(ticker);
-        return { ticker, ...result };
-      } catch (error) {
-        return {
-          ticker,
-          indicator: {
-            displayName: ticker,
-            session: 'NA' as const,
-            source: getTickerSource(ticker) as DataSource,
-          },
-          capability: {
-            ok: false,
-            reason: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            sourceUsed: getTickerSource(ticker) as DataSource,
-          },
-        };
-      }
-    })
-  );
-
-  for (const { ticker, indicator, capability } of results) {
-    indicators[ticker] = indicator;
-    capabilities[ticker] = capability;
+  // Fetch Stooq tickers SEQUENTIALLY (critical for avoiding rate limits)
+  if (stooqTickers.length > 0) {
+    const stooqResult = await fetchStooqIndicatorsSequential(stooqTickers);
+    Object.assign(indicators, stooqResult.indicators);
+    Object.assign(capabilities, stooqResult.capabilities);
   }
+
+  // Fetch FRED tickers in parallel (FRED has proper rate limiting)
+  if (fredTickers.length > 0 && isFredAvailable()) {
+    const fredResults = await Promise.all(
+      fredTickers.map(async (ticker) => {
+        try {
+          const result = await fetchFredIndicator(ticker);
+          return { ticker, ...result };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          if (!isOptionalTicker(ticker)) {
+            console.error(`[Fetcher] Error fetching ${ticker}: ${errorMessage}`);
+          }
+          return {
+            ticker,
+            indicator: {
+              displayName: ticker,
+              session: 'NA' as const,
+              source: 'FRED' as DataSource,
+            },
+            capability: {
+              ok: false,
+              reason: `Error: ${errorMessage}`,
+              sourceUsed: 'FRED' as DataSource,
+            },
+          };
+        }
+      })
+    );
+
+    for (const { ticker, indicator, capability } of fredResults) {
+      indicators[ticker] = indicator;
+      capabilities[ticker] = capability;
+    }
+  } else if (fredTickers.length > 0) {
+    // FRED not available - mark all as unavailable
+    for (const ticker of fredTickers) {
+      indicators[ticker] = {
+        displayName: ticker,
+        session: 'NA',
+        source: 'FRED' as DataSource,
+      };
+      capabilities[ticker] = {
+        ok: false,
+        reason: 'FRED API key not configured',
+        sourceUsed: 'FRED' as DataSource,
+      };
+    }
+  }
+
+  // Handle other tickers (AV, etc.)
+  for (const ticker of otherTickers) {
+    try {
+      const result = await fetchIndicatorBySource(ticker);
+      indicators[ticker] = result.indicator;
+      capabilities[ticker] = result.capability;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      indicators[ticker] = {
+        displayName: ticker,
+        session: 'NA',
+        source: getTickerSource(ticker) as DataSource,
+      };
+      capabilities[ticker] = {
+        ok: false,
+        reason: `Error: ${errorMessage}`,
+        sourceUsed: getTickerSource(ticker) as DataSource,
+      };
+    }
+  }
+
+  // Log summary
+  const stooqSuccess = stooqTickers.filter(t => capabilities[t]?.ok).length;
+  const fredSuccess = fredTickers.filter(t => capabilities[t]?.ok).length;
+  console.log(`[Fetcher] Results: Stooq ${stooqSuccess}/${stooqTickers.length}, FRED ${fredSuccess}/${fredTickers.length}`);
 
   return { indicators, capabilities, warnings };
 }
 
 /**
  * Compute derived indicators from base indicators
+ * Handles missing optional indicators gracefully (no warnings for optional)
  */
 function computeDerivedIndicators(
   baseIndicators: Record<string, Indicator>,
@@ -196,10 +245,15 @@ function computeDerivedIndicators(
         reason: `Missing components: ${!indicatorA?.price ? components.a : ''} ${!indicatorB?.price ? components.b : ''}`.trim(),
         sourceUsed: 'PROXY',
       };
-      warnings.push({
-        code: 'DERIVED_MISSING',
-        message: `Cannot compute ${derivedTicker}: missing ${!indicatorA?.price ? components.a : components.b}`,
-      });
+
+      // Only warn if the missing component is NOT an optional ticker
+      const missingComponent = !indicatorA?.price ? components.a : components.b;
+      if (!isOptionalTicker(missingComponent)) {
+        warnings.push({
+          code: 'DERIVED_MISSING',
+          message: `Cannot compute ${derivedTicker}: missing ${missingComponent}`,
+        });
+      }
       continue;
     }
 
@@ -223,13 +277,8 @@ function computeDerivedIndicators(
       changePct = previousClose !== 0 ? (change / Math.abs(previousClose)) * 100 : 0;
     }
 
-    // Add source attribution to derived indicators
-    const sourceA = indicatorA.source;
-    const sourceB = indicatorB.source;
-    const sourceSuffix = sourceA === sourceB ? `(${sourceA})` : `(${sourceA}/${sourceB})`;
-
     indicators[derivedTicker] = {
-      displayName: `${getDisplayName(derivedTicker)} ${sourceSuffix}`,
+      displayName: getDisplayName(derivedTicker),
       price,
       previousClose,
       change,

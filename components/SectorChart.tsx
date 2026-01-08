@@ -3,7 +3,7 @@
 import { FrostedCard } from './FrostedCard';
 import { Tooltip } from './Tooltip';
 import type { Sector } from '@/lib/types';
-import { getSectorBarColor, getDisplayName } from '@/lib/format';
+import { getSectorBarColor } from '@/lib/format';
 
 interface SectorChartProps {
   sectors: Sector[];
@@ -16,11 +16,14 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
     ? [...sectors].sort((a, b) => b.score - a.score)
     : sectors;
 
+  // DEBUG: Remove after verifying sector data flow
+  console.log("SECTORS RENDERED:", displaySectors);
+
   const maxScore = 100;
 
   return (
-    <FrostedCard className="h-full">
-      <div className="flex items-center justify-between mb-4">
+    <FrostedCard className="h-full flex flex-col">
+      <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <h3 className="text-lg font-semibold text-white flex items-center gap-2">
           SECTOR ATTRACTION
           <Tooltip
@@ -42,7 +45,7 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
       </div>
 
       {/* Bar chart */}
-      <div className="flex items-end justify-between gap-2 h-48">
+      <div className="flex items-end justify-between gap-2 flex-grow min-h-[180px]">
         {displaySectors.map((sector) => {
           const barHeight = (sector.score / maxScore) * 100;
           const barColor = getSectorBarColor(sector.score);
@@ -75,7 +78,7 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
                 {sector.ticker}
               </span>
               <span className="text-xs text-gray-500 truncate w-full text-center hidden sm:block">
-                {getDisplayName(sector.ticker)}
+                {sector.name || sector.ticker}
               </span>
             </div>
           );
@@ -83,7 +86,7 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
       </div>
 
       {/* Legend */}
-      <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-white/10">
+      <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-white/10 flex-shrink-0">
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded" style={{ backgroundColor: '#22c55e' }} />
           <span className="text-xs text-gray-400">High (70+)</span>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateScores, getStatusLabel, generateStatus } from '@/lib/analysis/scoring';
+import { calculateScores, getStatusLabel, generateStatus, calculateSectorScores } from '@/lib/analysis/scoring';
 import type { Indicator } from '@/lib/types';
 
 describe('Scoring Functions', () => {
@@ -228,5 +228,183 @@ describe('Data Computation', () => {
     expect(ratioPrev).toBeCloseTo(0.1778, 4);
     expect(ratioChange).not.toBe(0);
     expect(ratioPct).toBeCloseTo(-0.74, 1);
+  });
+});
+
+describe('calculateSectorScores', () => {
+  // Helper to create a minimal indicator with changePct (in percentage points)
+  // e.g., changePct = 0.42 means +0.42%
+  const createIndicator = (changePct: number): Indicator => ({
+    displayName: 'TEST',
+    price: 100,
+    previousClose: 100 / (1 + changePct / 100),
+    change: changePct,
+    changePct,
+    session: 'REGULAR',
+    source: 'STOOQ',
+  });
+
+  // Simple formula: score = clamp(50 + pct * 1000, 0, 100)
+  // where pct = (price - previousClose) / previousClose (decimal)
+  // +1% => 60, -1% => 40
+
+  it('returns score of 50 when sector has 0% change', () => {
+    const indicators: Record<string, Indicator> = {
+      XLK: createIndicator(0),
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // 0% change => score = 50
+    expect(xlk?.score).toBe(50);
+  });
+
+  it('returns score of 50 for missing sector data', () => {
+    const indicators: Record<string, Indicator> = {};
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // Missing data defaults to 50
+    expect(xlk?.score).toBe(50);
+  });
+
+  it('increases score for positive sector performance', () => {
+    const indicators: Record<string, Indicator> = {
+      XLK: createIndicator(1), // +1% up
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // +1% => score = 50 + 0.01 * 1000 = 60
+    expect(xlk?.score).toBe(60);
+  });
+
+  it('decreases score for negative sector performance', () => {
+    const indicators: Record<string, Indicator> = {
+      XLK: createIndicator(-1), // -1% down
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // -1% => score = 50 + (-0.01) * 1000 = 40
+    expect(xlk?.score).toBe(40);
+  });
+
+  it('calculates score for 2% move', () => {
+    const indicators: Record<string, Indicator> = {
+      XLK: createIndicator(2), // +2% up
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // +2% => score = 50 + 0.02 * 1000 = 70
+    expect(xlk?.score).toBe(70);
+  });
+
+  it('calculates score for -2% move', () => {
+    const indicators: Record<string, Indicator> = {
+      XLK: createIndicator(-2), // -2% down
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // -2% => score = 50 + (-0.02) * 1000 = 30
+    expect(xlk?.score).toBe(30);
+  });
+
+  it('clamps score at 100 for extreme positive moves', () => {
+    const indicators: Record<string, Indicator> = {
+      XLK: createIndicator(10), // +10% extreme move
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // +10% => 50 + 0.10 * 1000 = 150 => clamped to 100
+    expect(xlk?.score).toBe(100);
+  });
+
+  it('clamps score at 0 for extreme negative moves', () => {
+    const indicators: Record<string, Indicator> = {
+      XLK: createIndicator(-10), // -10% extreme move
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // -10% => 50 + (-0.10) * 1000 = -50 => clamped to 0
+    expect(xlk?.score).toBe(0);
+  });
+
+  it('handles fractional percentage moves', () => {
+    const indicators: Record<string, Indicator> = {
+      XLK: createIndicator(0.5), // +0.5% up
+    };
+
+    const sectors = calculateSectorScores(indicators);
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+
+    // +0.5% => score = 50 + 0.005 * 1000 = 55
+    expect(xlk?.score).toBe(55);
+  });
+
+  it('produces varied scores for different sectors', () => {
+    const indicators: Record<string, Indicator> = {
+      XLK: createIndicator(1), // +1% => 60
+      XLF: createIndicator(-1), // -1% => 40
+      XLE: createIndicator(2), // +2% => 70
+      XLU: createIndicator(-2), // -2% => 30
+    };
+
+    const sectors = calculateSectorScores(indicators);
+
+    const xlk = sectors.find((s) => s.ticker === 'XLK');
+    const xlf = sectors.find((s) => s.ticker === 'XLF');
+    const xle = sectors.find((s) => s.ticker === 'XLE');
+    const xlu = sectors.find((s) => s.ticker === 'XLU');
+
+    expect(xlk?.score).toBe(60);
+    expect(xlf?.score).toBe(40);
+    expect(xle?.score).toBe(70);
+    expect(xlu?.score).toBe(30);
+
+    // Verify XLK > XLF
+    expect(xlk?.score).toBeGreaterThan(xlf?.score ?? 0);
+  });
+
+  it('returns all sector ETFs with human-readable names', () => {
+    const indicators: Record<string, Indicator> = {
+      SPY: createIndicator(0),
+    };
+
+    const sectors = calculateSectorScores(indicators);
+
+    // Should have all 10 sector ETFs
+    expect(sectors.length).toBe(10);
+
+    const expectedSectors = [
+      { ticker: 'XLK', name: 'Technology' },
+      { ticker: 'XLF', name: 'Financials' },
+      { ticker: 'XLI', name: 'Industrials' },
+      { ticker: 'XLE', name: 'Energy' },
+      { ticker: 'XLV', name: 'Healthcare' },
+      { ticker: 'XLP', name: 'Consumer Staples' },
+      { ticker: 'XLU', name: 'Utilities' },
+      { ticker: 'XLRE', name: 'Real Estate' },
+      { ticker: 'XLY', name: 'Consumer Disc.' },
+      { ticker: 'XLC', name: 'Communication' },
+    ];
+
+    for (const expected of expectedSectors) {
+      const sector = sectors.find((s) => s.ticker === expected.ticker);
+      expect(sector).toBeDefined();
+      expect(sector?.name).toBe(expected.name);
+    }
   });
 });

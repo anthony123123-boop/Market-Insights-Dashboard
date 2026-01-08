@@ -16,6 +16,7 @@ export const CapabilitySchema = z.object({
   triedSymbols: z.array(z.string()).optional(),
   reason: z.string().optional(),
   isProxy: z.boolean().optional(),
+  isStale: z.boolean().optional(), // True if data came from LKG fallback
   sourceUsed: z.enum(['AV', 'STOOQ', 'FRED', 'PROXY']).optional(),
 });
 

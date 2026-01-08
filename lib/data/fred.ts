@@ -14,14 +14,18 @@ const FRED_BASE_URL = 'https://api.stlouisfed.org/fred/series/observations';
  * FRED series IDs for treasury yields and economic indicators
  */
 export const FRED_SERIES: Record<string, { seriesId: string; displayName: string }> = {
-  // Treasury Yields
-  TNX: { seriesId: 'DGS10', displayName: '10-Year Treasury (FRED)' }, // 10-Year Treasury Constant Maturity Rate
-  IRX: { seriesId: 'DGS3MO', displayName: '3-Month T-Bill (FRED)' }, // 3-Month Treasury Bill Rate
-  FVX: { seriesId: 'DGS5', displayName: '5-Year Treasury (FRED)' }, // 5-Year Treasury Constant Maturity Rate
-  TYX: { seriesId: 'DGS30', displayName: '30-Year Treasury (FRED)' }, // 30-Year Treasury Constant Maturity Rate
+  // VIX - CBOE Volatility Index (PRIMARY source for VIX)
+  VIX: { seriesId: 'VIXCLS', displayName: 'VIX' },
 
-  // 2-Year for yield curve calculation
-  DGS2: { seriesId: 'DGS2', displayName: '2-Year Treasury (FRED)' }, // 2-Year Treasury
+  // Treasury Yields
+  TNX: { seriesId: 'DGS10', displayName: '10Y Treasury' },
+  IRX: { seriesId: 'DGS3MO', displayName: '3M T-Bill' },
+  FVX: { seriesId: 'DGS5', displayName: '5Y Treasury' },
+  TYX: { seriesId: 'DGS30', displayName: '30Y Treasury' },
+
+  // Additional rates for yield curve
+  DGS2: { seriesId: 'DGS2', displayName: '2Y Treasury' },
+  DGS1: { seriesId: 'DGS1', displayName: '1Y Treasury' },
 };
 
 /**
@@ -161,15 +165,18 @@ export async function fetchFredIndicator(logicalTicker: string): Promise<{
   const cacheKey = `fred:${fredInfo.seriesId}`;
 
   try {
-    const result = await cache.singleFlight(
+    // Use singleFlightWithLKG for automatic last-known-good fallback
+    const result = await cache.singleFlightWithLKG(
       cacheKey,
       () => fetchFredSeriesRaw(fredInfo.seriesId),
       { ttlMs: CACHE_TTL.QUOTES }
     );
 
     const data = result.data;
+    const isStale = result.isStale || false;
 
     if (!data) {
+      console.warn(`[FRED] No data available for ${logicalTicker} (${fredInfo.seriesId})`);
       return {
         indicator: {
           displayName: fredInfo.displayName,
@@ -183,6 +190,10 @@ export async function fetchFredIndicator(logicalTicker: string): Promise<{
           sourceUsed: 'FRED' as DataSource,
         },
       };
+    }
+
+    if (isStale) {
+      console.log(`[FRED] Using stale/LKG data for ${logicalTicker} (${result.ageSeconds}s old)`);
     }
 
     const change = data.price - data.previousClose;
@@ -203,6 +214,7 @@ export async function fetchFredIndicator(logicalTicker: string): Promise<{
         ok: true,
         resolvedSymbol: fredInfo.seriesId,
         sourceUsed: 'FRED' as DataSource,
+        isStale,
       },
     };
   } catch (error) {
@@ -233,7 +245,7 @@ export async function fetchYieldSpread(): Promise<{
   if (!isFredAvailable()) {
     return {
       indicator: {
-        displayName: '10Y-2Y Spread (FRED)',
+        displayName: '10Y-2Y Spread',
         session: 'NA',
         source: 'FRED' as DataSource,
       },
@@ -248,7 +260,8 @@ export async function fetchYieldSpread(): Promise<{
   const cacheKey = 'fred:yield-spread';
 
   try {
-    const result = await cache.singleFlight(
+    // Use singleFlightWithLKG for automatic last-known-good fallback
+    const result = await cache.singleFlightWithLKG(
       cacheKey,
       async () => {
         const [tenYear, twoYear] = await Promise.all([
@@ -270,11 +283,12 @@ export async function fetchYieldSpread(): Promise<{
     );
 
     const data = result.data;
+    const isStale = result.isStale || false;
 
     if (!data) {
       return {
         indicator: {
-          displayName: '10Y-2Y Spread (FRED)',
+          displayName: '10Y-2Y Spread',
           session: 'NA',
           source: 'FRED' as DataSource,
         },
@@ -291,7 +305,7 @@ export async function fetchYieldSpread(): Promise<{
 
     return {
       indicator: {
-        displayName: '10Y-2Y Spread (FRED)',
+        displayName: '10Y-2Y Spread',
         price: data.spread,
         previousClose: data.prevSpread,
         change,
@@ -304,13 +318,14 @@ export async function fetchYieldSpread(): Promise<{
         ok: true,
         resolvedSymbol: 'DGS10-DGS2',
         sourceUsed: 'FRED' as DataSource,
+        isStale,
       },
     };
   } catch (error) {
     console.error('FRED yield spread fetch error:', error);
     return {
       indicator: {
-        displayName: '10Y-2Y Spread (FRED)',
+        displayName: '10Y-2Y Spread',
         session: 'NA',
         source: 'FRED' as DataSource,
       },

@@ -86,39 +86,21 @@ function calculateTrendScore(indicators: Record<string, Indicator>): { score: nu
 
 /**
  * Calculate volatility/tail risk score
+ * Note: VIX is optional (requires FRED_API_KEY). If unavailable, this category
+ * returns available=false and the score is renormalized without it.
  */
 function calculateVolTailScore(indicators: Record<string, Indicator>): { score: number; available: boolean } {
   const vix = indicators['VIX'];
-  const vixVvixRatio = indicators['VIX_VVIX_RATIO'];
-  const skew = indicators['SKEW'];
-
-  let totalScore = 0;
-  let count = 0;
 
   // VIX level (lower is more bullish)
   if (vix?.price !== undefined) {
     // VIX typically ranges 10-40, with < 15 being low vol, > 30 being high vol
-    totalScore += normalize(vix.price, 10, 40, true) * 0.5;
-    count += 0.5;
+    const score = normalize(vix.price, 10, 40, true);
+    return { score, available: true };
   }
 
-  // VIX/VVIX ratio (lower means less volatility of volatility)
-  if (vixVvixRatio?.price !== undefined) {
-    // Typical range 0.1-0.3
-    totalScore += normalize(vixVvixRatio.price, 0.08, 0.35, true) * 0.3;
-    count += 0.3;
-  }
-
-  // SKEW (lower is more bullish - less tail risk priced)
-  if (skew?.price !== undefined) {
-    // SKEW typically ranges 100-150
-    totalScore += normalize(skew.price, 100, 160, true) * 0.2;
-    count += 0.2;
-  }
-
-  if (count === 0) return { score: 50, available: false };
-
-  return { score: totalScore / count, available: true };
+  // VIX not available - return unavailable so scoring renormalizes without it
+  return { score: 50, available: false };
 }
 
 /**
@@ -186,22 +168,19 @@ function calculateRatesScore(indicators: Record<string, Indicator>): { score: nu
 }
 
 /**
- * Calculate USD/FX score
+ * Calculate USD/FX score using UUP (Dollar ETF)
  */
 function calculateUsdFxScore(indicators: Record<string, Indicator>): { score: number; available: boolean } {
-  const dxy = indicators['DXY'];
   const uup = indicators['UUP'];
 
   let totalScore = 0;
   let count = 0;
 
-  // DXY - stronger dollar can be mixed signal, moderate is best for equities
-  const dollarIndicator = dxy?.price !== undefined ? dxy : uup;
-
-  if (dollarIndicator?.changePct !== undefined) {
+  // UUP - Dollar ETF, stronger dollar can be mixed signal, moderate is best for equities
+  if (uup?.changePct !== undefined) {
     // Sharp dollar moves either way can indicate stress
     // Slight weakness (falling dollar) often bullish for risk assets
-    totalScore += normalize(dollarIndicator.changePct, -1.5, 1.5, true) * 1.0;
+    totalScore += normalize(uup.changePct, -1.5, 1.5, true) * 1.0;
     count += 1.0;
   }
 
@@ -403,34 +382,64 @@ export function generateStatus(
 }
 
 /**
- * Calculate sector attraction scores
+ * Human-readable names for sector ETFs
+ */
+const SECTOR_NAMES: Record<string, string> = {
+  XLK: 'Technology',
+  XLF: 'Financials',
+  XLI: 'Industrials',
+  XLE: 'Energy',
+  XLV: 'Healthcare',
+  XLP: 'Consumer Staples',
+  XLU: 'Utilities',
+  XLRE: 'Real Estate',
+  XLY: 'Consumer Disc.',
+  XLC: 'Communication',
+};
+
+/**
+ * Calculate sector attraction scores from price data
+ *
+ * Formula: score = clamp(50 + pct * 1000, 0, 100)
+ * where pct = (price - previousClose) / previousClose (decimal)
+ *
+ * Examples:
+ * - +1% move => 50 + 0.01 * 1000 = 60
+ * - -1% move => 50 + (-0.01) * 1000 = 40
+ * - +5% move => 50 + 0.05 * 1000 = 100 (clamped)
+ *
+ * Returns 50 only if sector data is missing.
  */
 export function calculateSectorScores(indicators: Record<string, Indicator>): Sector[] {
-  const spy = indicators['SPY'];
-  const spyChange = spy?.changePct ?? 0;
-
   return SECTOR_ETFS.map((ticker) => {
     const sector = indicators[ticker];
+    const name = SECTOR_NAMES[ticker] || ticker;
 
-    if (!sector?.changePct === undefined) {
-      return { ticker, score: 50, name: ticker };
+    // Check if indicator exists
+    if (!sector) {
+      console.warn(`[SectorScoring] ${ticker}: missing indicator entirely`);
+      return { ticker, score: 50, name };
     }
 
-    // Base score from relative performance vs SPY
-    const relativePerformance = (sector.changePct ?? 0) - spyChange;
-
-    // Normalize to 0-100 (outperformance of +2% = 100, underperformance of -2% = 0)
-    let score = normalize(relativePerformance, -2, 2);
-
-    // Add momentum factor
-    if (sector.changePct !== undefined && sector.changePct > 0) {
-      score = Math.min(100, score + 10); // Bonus for positive performance
+    // Check if we have price data
+    if (sector.price === undefined || sector.previousClose === undefined) {
+      console.warn(`[SectorScoring] ${ticker}: missing price data (price=${sector.price}, previousClose=${sector.previousClose})`);
+      return { ticker, score: 50, name };
     }
 
-    return {
-      ticker,
-      score: Math.round(score),
-      name: ticker,
-    };
+    // Calculate percentage change as decimal
+    const pct = (sector.price - sector.previousClose) / sector.previousClose;
+
+    // Score: +1% => 60, -1% => 40
+    const score = Math.round(Math.max(0, Math.min(100, 50 + pct * 1000)));
+
+    return { ticker, score, name };
   });
+}
+
+/**
+ * Clamp a value between min and max
+ */
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }

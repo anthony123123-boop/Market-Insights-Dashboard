@@ -7,7 +7,6 @@ import {
   ScoreGauge,
   IndicatorPill,
   StatusCard,
-  StatusDetailsPanel,
   SectorChart,
   ViewMorePanel,
   SettingsSidebar,
@@ -44,7 +43,6 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<DashboardSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [statusExpanded, setStatusExpanded] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -88,6 +86,13 @@ export default function Dashboard() {
 
     return () => clearInterval(interval);
   }, [fetchData, settings.refreshInterval]);
+
+  // DEBUG: Log sector scores when data changes (remove after verifying)
+  useEffect(() => {
+    if (data?.sectors) {
+      console.log('SECTOR SCORES FROM API:', data.sectors);
+    }
+  }, [data?.sectors]);
 
   // Density classes
   const densityClasses = settings.density === 'compact' ? 'gap-3 p-3' : 'gap-4 p-4';
@@ -169,71 +174,70 @@ export default function Dashboard() {
         {/* Dashboard content */}
         {data && (
           <>
-            {/* Top Row: Score Pills */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              {/* Short Term */}
-              <FrostedCard className={`${cardPadding} ${getScoreColor(data.scores.short).glow}`}>
-                <div className="flex flex-col items-center">
-                  <ScoreGauge
-                    score={data.scores.short}
-                    label="Short Term"
-                    size={settings.density === 'compact' ? 'sm' : 'md'}
-                  />
-                  <Tooltip
-                    content="Short-term outlook (1-5 trading days) based on momentum, volatility, and recent price action."
-                    position="bottom"
-                  />
+            {/* Main Grid: Gauges + Sector Chart on left, Tall Sidebar on right */}
+            {/* Desktop: 4 columns - 3 for content, 1 for sidebar spanning 2 rows */}
+            {/* Mobile: single column stack */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+              {/* LEFT CONTENT AREA (3 columns on desktop) */}
+              <div className="lg:col-span-3 space-y-4">
+                {/* Score Gauges Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Short Term */}
+                  <FrostedCard className={`${cardPadding} ${getScoreColor(data.scores.short).glow}`}>
+                    <div className="flex flex-col items-center">
+                      <ScoreGauge
+                        score={data.scores.short}
+                        label="Short Term"
+                        size={settings.density === 'compact' ? 'sm' : 'md'}
+                      />
+                      <Tooltip
+                        content="Short-term outlook (1-5 trading days) based on momentum, volatility, and recent price action."
+                        position="bottom"
+                      />
+                    </div>
+                  </FrostedCard>
+
+                  {/* Medium Term */}
+                  <FrostedCard className={`${cardPadding} ${getScoreColor(data.scores.medium).glow}`}>
+                    <div className="flex flex-col items-center">
+                      <ScoreGauge
+                        score={data.scores.medium}
+                        label="Medium Term"
+                        size={settings.density === 'compact' ? 'sm' : 'md'}
+                      />
+                      <Tooltip
+                        content="Medium-term outlook (2-6 weeks) based on trend strength, credit conditions, and market breadth."
+                        position="bottom"
+                      />
+                    </div>
+                  </FrostedCard>
+
+                  {/* Long Term */}
+                  <FrostedCard className={`${cardPadding} ${getScoreColor(data.scores.long).glow}`}>
+                    <div className="flex flex-col items-center">
+                      <ScoreGauge
+                        score={data.scores.long}
+                        label="Long Term"
+                        size={settings.density === 'compact' ? 'sm' : 'md'}
+                      />
+                      <Tooltip
+                        content="Long-term outlook (3-12 months) based on trend quality, macro conditions, and structural factors."
+                        position="bottom"
+                      />
+                    </div>
+                  </FrostedCard>
                 </div>
-              </FrostedCard>
 
-              {/* Medium Term */}
-              <FrostedCard className={`${cardPadding} ${getScoreColor(data.scores.medium).glow}`}>
-                <div className="flex flex-col items-center">
-                  <ScoreGauge
-                    score={data.scores.medium}
-                    label="Medium Term"
-                    size={settings.density === 'compact' ? 'sm' : 'md'}
-                  />
-                  <Tooltip
-                    content="Medium-term outlook (2-6 weeks) based on trend strength, credit conditions, and market breadth."
-                    position="bottom"
-                  />
+                {/* Sector Chart Row */}
+                <div className="min-h-[280px]">
+                  <SectorChart sectors={data.sectors} />
                 </div>
-              </FrostedCard>
-
-              {/* Long Term */}
-              <FrostedCard className={`${cardPadding} ${getScoreColor(data.scores.long).glow}`}>
-                <div className="flex flex-col items-center">
-                  <ScoreGauge
-                    score={data.scores.long}
-                    label="Long Term"
-                    size={settings.density === 'compact' ? 'sm' : 'md'}
-                  />
-                  <Tooltip
-                    content="Long-term outlook (3-12 months) based on trend quality, macro conditions, and structural factors."
-                    position="bottom"
-                  />
-                </div>
-              </FrostedCard>
-
-              {/* Status */}
-              <StatusCard
-                status={data.status}
-                scores={data.scores}
-                onExpandChange={setStatusExpanded}
-              />
-            </div>
-
-            {/* Middle Row: Sector Chart + Details */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-              {/* Sector Chart - takes 2 columns on desktop */}
-              <div className="lg:col-span-2">
-                <SectorChart sectors={data.sectors} />
               </div>
 
-              {/* Details Panel - takes 1 column */}
-              <div className="lg:col-span-1">
-                <StatusDetailsPanel status={data.status} isVisible={statusExpanded} />
+              {/* RIGHT SIDEBAR (1 column, spans both rows on desktop) */}
+              {/* On mobile, this appears after the gauges and before indicators */}
+              <div className="lg:col-span-1 lg:row-span-1 min-h-[400px] lg:min-h-0 order-first lg:order-none">
+                <StatusCard status={data.status} scores={data.scores} />
               </div>
             </div>
 
