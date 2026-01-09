@@ -6,3 +6,4 @@ export { IndicatorPill, CompactIndicatorPill } from './IndicatorPill';
 export { ViewMorePanel } from './ViewMorePanel';
 export { LoadingState } from './LoadingState';
 export { ErrorState } from './ErrorState';
+export { InfoTooltip } from './InfoTooltip';
