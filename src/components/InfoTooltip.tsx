@@ -5,7 +5,7 @@ interface InfoTooltipProps {
   position?: 'top' | 'bottom' | 'left' | 'right';
 }
 
-export function InfoTooltip({ content, position = 'top' }: InfoTooltipProps) {
+export function InfoTooltip({ content, position = 'bottom' }: InfoTooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
 
   const positionClasses = {
@@ -16,10 +16,10 @@ export function InfoTooltip({ content, position = 'top' }: InfoTooltipProps) {
   };
 
   const arrowClasses = {
-    top: 'top-full left-1/2 -translate-x-1/2 border-t-gray-800',
-    bottom: 'bottom-full left-1/2 -translate-x-1/2 border-b-gray-800',
-    left: 'left-full top-1/2 -translate-y-1/2 border-l-gray-800',
-    right: 'right-full top-1/2 -translate-y-1/2 border-r-gray-800',
+    top: 'top-full left-1/2 -translate-x-1/2 border-t-gray-900',
+    bottom: 'bottom-full left-1/2 -translate-x-1/2 border-b-gray-900',
+    left: 'left-full top-1/2 -translate-y-1/2 border-l-gray-900',
+    right: 'right-full top-1/2 -translate-y-1/2 border-r-gray-900',
   };
 
   return (
@@ -30,7 +30,7 @@ export function InfoTooltip({ content, position = 'top' }: InfoTooltipProps) {
     >
       {/* Info icon */}
       <button
-        className="w-4 h-4 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors cursor-help"
+        className="w-4 h-4 rounded-full bg-white/10 hover:bg-cyan-500/30 flex items-center justify-center transition-colors cursor-help"
         aria-label="More information"
       >
         <svg
@@ -46,12 +46,13 @@ export function InfoTooltip({ content, position = 'top' }: InfoTooltipProps) {
         </svg>
       </button>
 
-      {/* Tooltip */}
+      {/* Tooltip - HIGH z-index and solid background */}
       {isVisible && (
         <div
-          className={`absolute z-50 ${positionClasses[position]} w-64 px-3 py-2 text-xs text-gray-200 bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-xl border border-white/10`}
+          className={`absolute ${positionClasses[position]} w-64 px-3 py-2 text-xs text-gray-100 bg-gray-900 rounded-lg shadow-2xl border border-cyan-500/30`}
+          style={{ zIndex: 9999 }}
         >
-          {content}
+          <div className="whitespace-pre-line">{content}</div>
           {/* Arrow */}
           <div
             className={`absolute w-0 h-0 border-4 border-transparent ${arrowClasses[position]}`}

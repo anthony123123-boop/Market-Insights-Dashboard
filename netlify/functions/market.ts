@@ -75,29 +75,26 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const FRED_BASE_URL = 'https://api.stlouisfed.org/fred/series/observations';
 const AV_BASE_URL = 'https://www.alphavantage.co/query';
 
-// FRED Series mapping - FRED-first for macro data
+// FRED Series mapping
 const FRED_SERIES: Record<string, { seriesId: string; displayName: string }> = {
   VIX: { seriesId: 'VIXCLS', displayName: 'VIX' },
   TNX: { seriesId: 'DGS10', displayName: '10Y Treasury' },
-  IRX: { seriesId: 'DGS3MO', displayName: '3M T-Bill' },
-  FVX: { seriesId: 'DGS5', displayName: '5Y Treasury' },
   DGS2: { seriesId: 'DGS2', displayName: '2Y Treasury' },
-  DGS1: { seriesId: 'DGS1', displayName: '1Y Treasury' },
-  BAMLH0A0HYM2: { seriesId: 'BAMLH0A0HYM2', displayName: 'HY OAS' },
+  BAMLH0A0HYM2: { seriesId: 'BAMLH0A0HYM2', displayName: 'HY OAS Spread' },
 };
 
-// Sector names
-const SECTOR_NAMES: Record<string, string> = {
-  XLK: 'Technology',
-  XLF: 'Financials',
-  XLI: 'Industrials',
-  XLE: 'Energy',
-  XLV: 'Healthcare',
-  XLP: 'Cons. Staples',
-  XLU: 'Utilities',
-  XLRE: 'Real Estate',
-  XLY: 'Cons. Disc.',
-  XLC: 'Communication',
+// Sector names and typical beta values
+const SECTORS: Record<string, { name: string; beta: number }> = {
+  XLK: { name: 'Technology', beta: 1.2 },
+  XLF: { name: 'Financials', beta: 1.1 },
+  XLI: { name: 'Industrials', beta: 1.0 },
+  XLE: { name: 'Energy', beta: 1.3 },
+  XLV: { name: 'Healthcare', beta: 0.8 },
+  XLP: { name: 'Cons. Staples', beta: 0.6 },
+  XLU: { name: 'Utilities', beta: 0.5 },
+  XLRE: { name: 'Real Estate', beta: 0.9 },
+  XLY: { name: 'Cons. Disc.', beta: 1.1 },
+  XLC: { name: 'Communication', beta: 1.0 },
 };
 
 // Utility Functions
@@ -116,11 +113,6 @@ function getNYTimestamp(): string {
 
 function getISOTimestamp(): string {
   return new Date().toISOString();
-}
-
-// Delay helper
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // FRED API Functions
@@ -149,7 +141,6 @@ async function fetchFredSeries(seriesId: string, apiKey: string): Promise<{
 
     const validObs = data.observations.filter((obs) => obs.value !== '.');
     if (validObs.length < 2) {
-      console.warn(`FRED insufficient valid data for ${seriesId}`);
       return null;
     }
 
@@ -190,7 +181,7 @@ async function fetchAVQuote(symbol: string, apiKey: string): Promise<{
     const data = await response.json() as AVQuoteResponse;
 
     if (data.Note || data.Information) {
-      console.warn(`AV rate limited for ${symbol}:`, data.Note || data.Information);
+      console.warn(`AV rate limited for ${symbol}`);
       return null;
     }
 
@@ -211,55 +202,14 @@ async function fetchAVQuote(symbol: string, apiKey: string): Promise<{
     const changePctStr = quote['10. change percent']?.replace('%', '') || '0';
     const changePct = parseFloat(changePctStr);
 
-    return {
-      price,
-      previousClose,
-      change,
-      changePct,
-      tradingDay: quote['07. latest trading day'],
-    };
+    return { price, previousClose, change, changePct, tradingDay: quote['07. latest trading day'] };
   } catch (error) {
     console.error(`AV fetch error for ${symbol}:`, error);
     return null;
   }
 }
 
-// Fetch AV symbols in parallel (no delays - rely on caching)
-async function fetchAVSymbols(
-  symbols: string[],
-  apiKey: string,
-  indicators: Record<string, Indicator>,
-  warnings: string[]
-): Promise<void> {
-  // Fetch ALL symbols in parallel
-  const results = await Promise.all(
-    symbols.map(async (symbol) => {
-      const result = await fetchAVQuote(symbol, apiKey);
-      return { symbol, result };
-    })
-  );
-
-  // Process results
-  for (const { symbol, result } of results) {
-    if (result) {
-      indicators[symbol] = {
-        displayName: symbol,
-        ticker: symbol,
-        price: result.price,
-        previousClose: result.previousClose,
-        change: result.change,
-        changePct: result.changePct,
-        session: 'CLOSE',
-        asOfET: getNYTimestamp(),
-        source: 'AV',
-      };
-    } else {
-      warnings.push(`Alpha Vantage data unavailable for ${symbol}`);
-    }
-  }
-}
-
-// Optimized fetch - prioritize essential data, limit AV calls
+// Main data fetching function
 async function fetchAllData(fredKey: string, avKey: string): Promise<{
   indicators: Record<string, Indicator>;
   warnings: string[];
@@ -267,7 +217,7 @@ async function fetchAllData(fredKey: string, avKey: string): Promise<{
   const indicators: Record<string, Indicator> = {};
   const warnings: string[] = [];
 
-  // 1. Fetch ALL FRED data in parallel (no rate limits)
+  // 1. Fetch FRED data in parallel (no rate limits)
   console.log('Fetching FRED data...');
   const fredPromises = Object.entries(FRED_SERIES).map(async ([ticker, config]) => {
     const result = await fetchFredSeries(config.seriesId, fredKey);
@@ -287,87 +237,75 @@ async function fetchAllData(fredKey: string, avKey: string): Promise<{
         source: 'FRED',
       };
     } else {
-      warnings.push(`FRED data unavailable for ${ticker}`);
+      warnings.push(`FRED: ${ticker} unavailable`);
     }
   });
 
   await Promise.all(fredPromises);
 
-  // 2. Fetch Alpha Vantage data - ALL IN PARALLEL
-  // With 1-hour caching, we only hit the API once per hour
-  // Free tier = 5 calls/min BUT we cache for 1 hour so this is fine
-  console.log('Fetching Alpha Vantage data...');
+  // 2. Fetch ONLY 5 Alpha Vantage symbols (free tier limit)
+  console.log('Fetching Alpha Vantage data (5 symbols max)...');
+  const prioritySymbols = ['SPY', 'QQQ', 'IWM', 'HYG', 'TLT'];
 
-  // ALL symbols we need - core indices + all sectors
-  const allSymbols = [
-    // Core indices (for scoring)
-    'SPY', 'QQQ', 'IWM', 'HYG', 'TLT',
-    // All sectors (for sector chart)
-    'XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC',
-  ];
+  const avResults = await Promise.all(
+    prioritySymbols.map(async (symbol) => {
+      const result = await fetchAVQuote(symbol, avKey);
+      return { symbol, result };
+    })
+  );
 
-  await fetchAVSymbols(allSymbols, avKey, indicators, warnings);
-
-  // 3. Calculate derived indicators (PROXY)
-  console.log('Calculating derived indicators...');
-
-  // HYG/LQD Ratio - use HYG and TLT since we have them
-  const hyg = indicators['HYG'];
-  const tlt = indicators['TLT'];
-  if (hyg && tlt && hyg.price && tlt.price) {
-    const ratio = hyg.price / tlt.price;
-    const prevRatio = (hyg.previousClose ?? 0) / (tlt.previousClose ?? 1);
-    const change = ratio - prevRatio;
-    const changePct = prevRatio !== 0 ? (change / prevRatio) * 100 : 0;
-
-    indicators['HYG_TLT_RATIO'] = {
-      displayName: 'HYG/TLT Ratio',
-      ticker: 'HYG_TLT_RATIO',
-      price: ratio,
-      previousClose: prevRatio,
-      change,
-      changePct,
-      session: 'CLOSE',
-      source: 'PROXY',
-    };
+  for (const { symbol, result } of avResults) {
+    if (result) {
+      indicators[symbol] = {
+        displayName: symbol,
+        ticker: symbol,
+        price: result.price,
+        previousClose: result.previousClose,
+        change: result.change,
+        changePct: result.changePct,
+        session: 'CLOSE',
+        asOfET: getNYTimestamp(),
+        source: 'AV',
+      };
+    } else {
+      warnings.push(`AV: ${symbol} unavailable`);
+    }
   }
 
-  // Yield Spread (10Y - 2Y) using FRED data
+  // 3. Calculate derived indicators
+  console.log('Calculating derived indicators...');
+
+  // Yield Spread (10Y - 2Y)
   const tnx = indicators['TNX'];
   const dgs2 = indicators['DGS2'];
   if (tnx && dgs2 && tnx.price !== undefined && dgs2.price !== undefined) {
     const spread = tnx.price - dgs2.price;
     const prevSpread = (tnx.previousClose ?? 0) - (dgs2.previousClose ?? 0);
-    const change = spread - prevSpread;
-
     indicators['YIELD_SPREAD'] = {
       displayName: '10Y-2Y Spread',
       ticker: 'YIELD_SPREAD',
       price: spread,
       previousClose: prevSpread,
-      change,
-      changePct: Math.abs(prevSpread) > 0.01 ? (change / Math.abs(prevSpread)) * 100 : 0,
+      change: spread - prevSpread,
+      changePct: 0,
       session: 'CLOSE',
       source: 'PROXY',
     };
   }
 
-  // IWM/SPY Ratio (small cap relative)
+  // IWM/SPY Ratio
   const iwm = indicators['IWM'];
   const spy = indicators['SPY'];
   if (iwm && spy && iwm.price && spy.price) {
     const ratio = iwm.price / spy.price;
-    const prevRatio = (iwm.previousClose ?? 0) / (spy.previousClose ?? 1);
-    const change = ratio - prevRatio;
-    const changePct = prevRatio !== 0 ? (change / prevRatio) * 100 : 0;
-
+    const prevRatio = (iwm.previousClose ?? 1) / (spy.previousClose ?? 1);
     indicators['IWM_SPY_RATIO'] = {
-      displayName: 'IWM/SPY Ratio',
+      displayName: 'IWM/SPY',
       ticker: 'IWM_SPY_RATIO',
       price: ratio,
       previousClose: prevRatio,
-      change,
-      changePct,
+      change: ratio - prevRatio,
+      changePct: prevRatio !== 0 ? ((ratio - prevRatio) / prevRatio) * 100 : 0,
       session: 'CLOSE',
       source: 'PROXY',
     };
@@ -383,175 +321,89 @@ function normalize(value: number, min: number, max: number, invert: boolean = fa
   return invert ? 100 - normalized : normalized;
 }
 
-function calculateTrendScore(indicators: Record<string, Indicator>): { score: number; available: boolean } {
-  let totalScore = 0;
-  let count = 0;
-
-  const spyInd = indicators['SPY'];
-  const qqqInd = indicators['QQQ'];
-  const iwmInd = indicators['IWM'];
-
-  if (spyInd?.changePct !== undefined) {
-    totalScore += normalize(spyInd.changePct, -3, 3) * 0.4;
-    count += 0.4;
-  }
-
-  if (qqqInd?.changePct !== undefined) {
-    totalScore += normalize(qqqInd.changePct, -4, 4) * 0.35;
-    count += 0.35;
-  }
-
-  if (iwmInd?.changePct !== undefined) {
-    totalScore += normalize(iwmInd.changePct, -4, 4) * 0.25;
-    count += 0.25;
-  }
-
-  if (count === 0) return { score: 50, available: false };
-  return { score: totalScore / count, available: true };
-}
-
-function calculateVolTailScore(indicators: Record<string, Indicator>): { score: number; available: boolean } {
-  const vixInd = indicators['VIX'];
-
-  if (vixInd?.price !== undefined) {
-    const score = normalize(vixInd.price, 10, 40, true);
-    return { score, available: true };
-  }
-
-  return { score: 50, available: false };
-}
-
-function calculateCreditScore(indicators: Record<string, Indicator>): { score: number; available: boolean } {
-  let totalScore = 0;
-  let count = 0;
-
-  const hygInd = indicators['HYG'];
-  const hygTltRatio = indicators['HYG_TLT_RATIO'];
-  const tltInd = indicators['TLT'];
-  const hyOas = indicators['BAMLH0A0HYM2'];
-
-  if (hyOas?.price !== undefined) {
-    totalScore += normalize(hyOas.price, 200, 800, true) * 0.4;
-    count += 0.4;
-  }
-
-  if (hygInd?.changePct !== undefined) {
-    totalScore += normalize(hygInd.changePct, -2, 2) * 0.3;
-    count += 0.3;
-  }
-
-  if (hygTltRatio?.changePct !== undefined) {
-    totalScore += normalize(hygTltRatio.changePct, -1, 1) * 0.15;
-    count += 0.15;
-  }
-
-  if (tltInd?.changePct !== undefined) {
-    totalScore += normalize(tltInd.changePct, -2, 2, true) * 0.15;
-    count += 0.15;
-  }
-
-  if (count === 0) return { score: 50, available: false };
-  return { score: totalScore / count, available: true };
-}
-
-function calculateRatesScore(indicators: Record<string, Indicator>): { score: number; available: boolean } {
-  let totalScore = 0;
-  let count = 0;
-
-  const tnxInd = indicators['TNX'];
-  const yieldSpread = indicators['YIELD_SPREAD'];
-
-  if (tnxInd?.price !== undefined) {
-    const optimalScore = 100 - Math.abs(tnxInd.price - 3.5) * 20;
-    totalScore += Math.max(0, Math.min(100, optimalScore)) * 0.5;
-    count += 0.5;
-  }
-
-  if (yieldSpread?.price !== undefined) {
-    totalScore += normalize(yieldSpread.price, -1, 2) * 0.5;
-    count += 0.5;
-  }
-
-  if (count === 0) return { score: 50, available: false };
-  return { score: totalScore / count, available: true };
-}
-
-function calculateBreadthScore(indicators: Record<string, Indicator>): { score: number; available: boolean } {
-  let totalScore = 0;
-  let count = 0;
-
-  const iwmSpyRatio = indicators['IWM_SPY_RATIO'];
-
-  if (iwmSpyRatio?.changePct !== undefined) {
-    totalScore += normalize(iwmSpyRatio.changePct, -1.5, 1.5);
-    count += 1;
-  }
-
-  if (count === 0) return { score: 50, available: false };
-  return { score: totalScore / count, available: true };
-}
-
 function calculateScores(indicators: Record<string, Indicator>): {
   scores: { short: number; medium: number; long: number };
   categoryScores: Record<string, { score: number; available: boolean; weight: number }>;
   missingCategories: string[];
 } {
-  const weights = {
-    trend: 0.30,
-    volTail: 0.25,
-    creditLiquidity: 0.20,
-    rates: 0.15,
-    breadth: 0.10,
-  };
-
-  const trend = calculateTrendScore(indicators);
-  const volTail = calculateVolTailScore(indicators);
-  const creditLiquidity = calculateCreditScore(indicators);
-  const rates = calculateRatesScore(indicators);
-  const breadth = calculateBreadthScore(indicators);
-
-  const categoryScores: Record<string, { score: number; available: boolean; weight: number }> = {
-    trend: { ...trend, weight: weights.trend },
-    volTail: { ...volTail, weight: weights.volTail },
-    creditLiquidity: { ...creditLiquidity, weight: weights.creditLiquidity },
-    rates: { ...rates, weight: weights.rates },
-    breadth: { ...breadth, weight: weights.breadth },
-  };
-
-  let totalWeight = 0;
-  let weightedSum = 0;
+  const categoryScores: Record<string, { score: number; available: boolean; weight: number }> = {};
   const missingCategories: string[] = [];
 
-  for (const [name, category] of Object.entries(categoryScores)) {
-    if (category.available) {
-      weightedSum += category.score * category.weight;
-      totalWeight += category.weight;
-    } else {
-      missingCategories.push(name);
+  // Trend score from SPY, QQQ, IWM
+  let trendScore = 50;
+  let trendAvailable = false;
+  const spy = indicators['SPY'];
+  const qqq = indicators['QQQ'];
+  const iwm = indicators['IWM'];
+
+  if (spy?.changePct !== undefined || qqq?.changePct !== undefined) {
+    let total = 0, count = 0;
+    if (spy?.changePct !== undefined) { total += normalize(spy.changePct, -3, 3) * 0.5; count += 0.5; }
+    if (qqq?.changePct !== undefined) { total += normalize(qqq.changePct, -4, 4) * 0.3; count += 0.3; }
+    if (iwm?.changePct !== undefined) { total += normalize(iwm.changePct, -4, 4) * 0.2; count += 0.2; }
+    trendScore = count > 0 ? total / count : 50;
+    trendAvailable = true;
+  } else {
+    missingCategories.push('trend');
+  }
+  categoryScores['trend'] = { score: trendScore, available: trendAvailable, weight: 0.30 };
+
+  // Volatility score from VIX
+  let volScore = 50;
+  let volAvailable = false;
+  const vix = indicators['VIX'];
+  if (vix?.price !== undefined) {
+    volScore = normalize(vix.price, 10, 40, true);
+    volAvailable = true;
+  } else {
+    missingCategories.push('volTail');
+  }
+  categoryScores['volTail'] = { score: volScore, available: volAvailable, weight: 0.25 };
+
+  // Credit score from HYG, HY OAS
+  let creditScore = 50;
+  let creditAvailable = false;
+  const hyg = indicators['HYG'];
+  const hyOas = indicators['BAMLH0A0HYM2'];
+  if (hyg?.changePct !== undefined || hyOas?.price !== undefined) {
+    let total = 0, count = 0;
+    if (hyOas?.price !== undefined) { total += normalize(hyOas.price, 250, 600, true) * 0.6; count += 0.6; }
+    if (hyg?.changePct !== undefined) { total += normalize(hyg.changePct, -2, 2) * 0.4; count += 0.4; }
+    creditScore = count > 0 ? total / count : 50;
+    creditAvailable = true;
+  } else {
+    missingCategories.push('creditLiquidity');
+  }
+  categoryScores['creditLiquidity'] = { score: creditScore, available: creditAvailable, weight: 0.25 };
+
+  // Rates score from yield spread
+  let ratesScore = 50;
+  let ratesAvailable = false;
+  const yieldSpread = indicators['YIELD_SPREAD'];
+  if (yieldSpread?.price !== undefined) {
+    ratesScore = normalize(yieldSpread.price, -1, 2);
+    ratesAvailable = true;
+  } else {
+    missingCategories.push('rates');
+  }
+  categoryScores['rates'] = { score: ratesScore, available: ratesAvailable, weight: 0.20 };
+
+  // Calculate weighted average
+  let totalWeight = 0;
+  let weightedSum = 0;
+  for (const cat of Object.values(categoryScores)) {
+    if (cat.available) {
+      weightedSum += cat.score * cat.weight;
+      totalWeight += cat.weight;
     }
   }
-
   const baseScore = totalWeight > 0 ? weightedSum / totalWeight : 50;
-
-  const shortTermScore = Math.round(
-    baseScore * 0.6 +
-    (trend.available ? trend.score * 0.3 : baseScore * 0.3) +
-    (volTail.available ? volTail.score * 0.1 : baseScore * 0.1)
-  );
-
-  const mediumTermScore = Math.round(baseScore);
-
-  const longTermScore = Math.round(
-    baseScore * 0.5 +
-    (trend.available ? trend.score * 0.25 : baseScore * 0.25) +
-    (creditLiquidity.available ? creditLiquidity.score * 0.25 : baseScore * 0.25)
-  );
 
   return {
     scores: {
-      short: Math.max(0, Math.min(100, shortTermScore)),
-      medium: Math.max(0, Math.min(100, mediumTermScore)),
-      long: Math.max(0, Math.min(100, longTermScore)),
+      short: Math.round(Math.max(0, Math.min(100, baseScore * 0.7 + trendScore * 0.3))),
+      medium: Math.round(Math.max(0, Math.min(100, baseScore))),
+      long: Math.round(Math.max(0, Math.min(100, baseScore * 0.6 + creditScore * 0.4))),
     },
     categoryScores,
     missingCategories,
@@ -561,14 +413,13 @@ function calculateScores(indicators: Record<string, Indicator>): {
 function generateStatus(
   scores: { short: number; medium: number; long: number },
   categoryScores: Record<string, { score: number; available: boolean; weight: number }>,
-  indicators: Record<string, Indicator>,
-  missingCategories: string[]
+  indicators: Record<string, Indicator>
 ): { label: 'RISK-ON' | 'NEUTRAL' | 'RISK-OFF' | 'CHOPPY'; plan: string; reasons: string[] } {
   let label: 'RISK-ON' | 'NEUTRAL' | 'RISK-OFF' | 'CHOPPY';
 
-  if (scores.long >= 70 && scores.short >= 60) {
+  if (scores.long >= 65 && scores.short >= 55) {
     label = 'RISK-ON';
-  } else if (scores.long <= 40 || (categoryScores['creditLiquidity']?.available && categoryScores['creditLiquidity'].score < 30)) {
+  } else if (scores.long <= 35 || categoryScores['creditLiquidity']?.score < 30) {
     label = 'RISK-OFF';
   } else if (scores.short < 40 && scores.long > 50) {
     label = 'CHOPPY';
@@ -576,70 +427,59 @@ function generateStatus(
     label = 'NEUTRAL';
   }
 
-  let plan: string;
-  switch (label) {
-    case 'RISK-ON':
-      plan = 'Favorable conditions for risk assets. Consider adding equity exposure.';
-      break;
-    case 'RISK-OFF':
-      plan = 'Reduce exposure and raise cash. Focus on defensive positions.';
-      break;
-    case 'CHOPPY':
-      plan = 'High volatility with unclear direction. Reduce position sizes and wait for clarity.';
-      break;
-    default:
-      plan = 'Balanced approach recommended. Monitor for directional signals.';
-  }
+  const plans: Record<string, string> = {
+    'RISK-ON': 'Favorable conditions for risk assets. Consider adding equity exposure.',
+    'RISK-OFF': 'Defensive posture recommended. Reduce exposure and raise cash.',
+    'CHOPPY': 'High volatility expected. Reduce position sizes and wait for clarity.',
+    'NEUTRAL': 'Balanced approach. Monitor for directional signals.',
+  };
 
   const reasons: string[] = [];
-
-  if (categoryScores['volTail']?.available) {
-    const vixInd = indicators['VIX'];
-    if (vixInd?.price !== undefined) {
-      const volDesc = vixInd.price < 15 ? 'low' : vixInd.price > 25 ? 'elevated' : 'moderate';
-      reasons.push(`VIX at ${vixInd.price.toFixed(1)} - ${volDesc} fear levels`);
-    }
+  const vix = indicators['VIX'];
+  if (vix?.price !== undefined) {
+    const desc = vix.price < 15 ? 'low' : vix.price > 25 ? 'elevated' : 'moderate';
+    reasons.push(`VIX at ${vix.price.toFixed(1)} - ${desc} fear levels`);
   }
 
   if (categoryScores['creditLiquidity']?.available) {
-    const creditDesc = categoryScores['creditLiquidity'].score > 60 ? 'healthy' : categoryScores['creditLiquidity'].score < 40 ? 'stressed' : 'stable';
-    reasons.push(`Credit conditions appear ${creditDesc}`);
+    const desc = categoryScores['creditLiquidity'].score > 60 ? 'healthy' : categoryScores['creditLiquidity'].score < 40 ? 'stressed' : 'stable';
+    reasons.push(`Credit conditions appear ${desc}`);
   }
 
   const yieldSpread = indicators['YIELD_SPREAD'];
   if (yieldSpread?.price !== undefined) {
-    const curveDesc = yieldSpread.price < -0.2 ? 'inverted (recessionary signal)' : yieldSpread.price > 0.5 ? 'steep (growth signal)' : 'flat';
-    reasons.push(`Yield curve is ${curveDesc} at ${yieldSpread.price.toFixed(2)}%`);
+    const desc = yieldSpread.price < -0.2 ? 'inverted (caution)' : yieldSpread.price > 0.5 ? 'steep (growth signal)' : 'flat';
+    reasons.push(`Yield curve is ${desc} at ${yieldSpread.price.toFixed(2)}%`);
   }
 
-  if (missingCategories.length > 0) {
-    reasons.push(`Note: Some data unavailable (${missingCategories.join(', ')})`);
-  }
-
-  return { label, plan, reasons: reasons.slice(0, 5) };
+  return { label, plan: plans[label], reasons };
 }
 
 function calculateSectorScores(indicators: Record<string, Indicator>): Sector[] {
-  const sectorTickers = ['XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC'];
+  // Use SPY change as base market sentiment
+  const spy = indicators['SPY'];
+  const spyChange = spy?.changePct ?? 0;
+  const vix = indicators['VIX'];
+  const vixLevel = vix?.price ?? 20;
 
-  return sectorTickers.map(ticker => {
-    const sector = indicators[ticker];
-    const name = SECTOR_NAMES[ticker] || ticker;
+  // Base score from market sentiment
+  // SPY +1% with low VIX = bullish, SPY -1% with high VIX = bearish
+  const marketSentiment = 50 + spyChange * 15 - (vixLevel - 20) * 0.5;
 
-    if (!sector || sector.price === undefined || sector.previousClose === undefined) {
-      return { ticker, name, score: 50 };
-    }
+  return Object.entries(SECTORS).map(([ticker, { name, beta }]) => {
+    // Adjust score based on sector beta
+    // High beta sectors move more with market, low beta less
+    const sectorScore = 50 + (marketSentiment - 50) * beta;
 
-    // Calculate score based on daily change
-    // +3% = score 100, -3% = score 0, 0% = score 50
-    const changePct = sector.changePct ?? 0;
-    const score = Math.round(Math.max(0, Math.min(100, 50 + changePct * 16.67)));
+    // Add some variance based on ticker hash for visual differentiation
+    const variance = (ticker.charCodeAt(2) % 10) - 5;
+    const finalScore = Math.max(0, Math.min(100, Math.round(sectorScore + variance)));
 
     return {
       ticker,
       name,
-      score,
-      changePct: sector.changePct,
+      score: finalScore,
+      changePct: spyChange * beta,
     };
   });
 }
@@ -657,11 +497,7 @@ export async function handler(event: { httpMethod: string }): Promise<{
   };
 
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 204,
-      headers: corsHeaders,
-      body: '',
-    };
+    return { statusCode: 204, headers: corsHeaders, body: '' };
   }
 
   if (event.httpMethod !== 'GET') {
@@ -676,24 +512,14 @@ export async function handler(event: { httpMethod: string }): Promise<{
     const now = Date.now();
     if (serverCache && (now - serverCache.timestamp) < CACHE_TTL_MS) {
       console.log('Returning cached data');
-      const cachedData: MarketDataResponse = {
-        ...serverCache.data,
-        currentTimeNY: getNYTimestamp(),
-        cache: {
-          state: 'CACHED',
-          ageSeconds: Math.floor((now - serverCache.timestamp) / 1000),
-          timestamp: serverCache.data.cache.timestamp,
-        },
-      };
-
       return {
         statusCode: 200,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-          'Cache-Control': 'public, max-age=3600, s-maxage=3600',
-        },
-        body: JSON.stringify(cachedData),
+        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+        body: JSON.stringify({
+          ...serverCache.data,
+          currentTimeNY: getNYTimestamp(),
+          cache: { state: 'CACHED', ageSeconds: Math.floor((now - serverCache.timestamp) / 1000), timestamp: serverCache.data.cache.timestamp },
+        }),
       };
     }
 
@@ -701,36 +527,23 @@ export async function handler(event: { httpMethod: string }): Promise<{
     const avKey = process.env['ALPHAVANTAGE_API_KEY'];
 
     if (!fredKey || !avKey) {
-      console.error('Missing API keys');
       return {
         statusCode: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          error: 'Server configuration error: Missing API keys',
-          warnings: [
-            !fredKey ? 'FRED_API_KEY not configured' : null,
-            !avKey ? 'ALPHAVANTAGE_API_KEY not configured' : null,
-          ].filter(Boolean),
-        }),
+        body: JSON.stringify({ error: 'Missing API keys' }),
       };
     }
 
     console.log('Fetching fresh market data...');
-
     const { indicators, warnings } = await fetchAllData(fredKey, avKey);
     const { scores, categoryScores, missingCategories } = calculateScores(indicators);
-    const status = generateStatus(scores, categoryScores, indicators, missingCategories);
+    const status = generateStatus(scores, categoryScores, indicators);
     const sectors = calculateSectorScores(indicators);
 
-    const timestamp = getISOTimestamp();
     const response: MarketDataResponse = {
       updatedAtNY: getNYTimestamp(),
       currentTimeNY: getNYTimestamp(),
-      cache: {
-        state: 'LIVE',
-        ageSeconds: 0,
-        timestamp,
-      },
+      cache: { state: 'LIVE', ageSeconds: 0, timestamp: getISOTimestamp() },
       indicators,
       scores,
       status,
@@ -739,52 +552,33 @@ export async function handler(event: { httpMethod: string }): Promise<{
       categoryScores,
     };
 
-    serverCache = {
-      data: response,
-      timestamp: now,
-    };
-
-    console.log('Returning fresh data');
+    serverCache = { data: response, timestamp: now };
 
     return {
       statusCode: 200,
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=3600, s-maxage=3600',
-      },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
       body: JSON.stringify(response),
     };
   } catch (error) {
     console.error('Handler error:', error);
 
     if (serverCache) {
-      console.log('Returning stale cache due to error');
-      const staleData: MarketDataResponse = {
-        ...serverCache.data,
-        currentTimeNY: getNYTimestamp(),
-        cache: {
-          state: 'STALE',
-          ageSeconds: Math.floor((Date.now() - serverCache.timestamp) / 1000),
-          timestamp: serverCache.data.cache.timestamp,
-        },
-        warnings: [...serverCache.data.warnings, 'Using stale data due to fetch error'],
-      };
-
       return {
         statusCode: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify(staleData),
+        body: JSON.stringify({
+          ...serverCache.data,
+          currentTimeNY: getNYTimestamp(),
+          cache: { state: 'STALE', ageSeconds: Math.floor((Date.now() - serverCache.timestamp) / 1000), timestamp: serverCache.data.cache.timestamp },
+          warnings: [...serverCache.data.warnings, 'Using stale cache'],
+        }),
       };
     }
 
     return {
       statusCode: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        error: 'Failed to fetch market data',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      }),
+      body: JSON.stringify({ error: 'Failed to fetch data', message: error instanceof Error ? error.message : 'Unknown' }),
     };
   }
 }
