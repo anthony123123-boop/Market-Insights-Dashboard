@@ -90,6 +90,8 @@ const FRED_SERIES: Record<string, { seriesId: string; displayName: string }> = {
   DGS5: { seriesId: 'DGS5', displayName: '5Y Treasury' },
   DGS1: { seriesId: 'DGS1', displayName: '1Y Treasury' },
   BAMLH0A0HYM2: { seriesId: 'BAMLH0A0HYM2', displayName: 'HY OAS Spread' },
+  T10YIE: { seriesId: 'T10YIE', displayName: '10Y Breakeven Inflation' },
+  TEDRATE: { seriesId: 'TEDRATE', displayName: 'TED Spread' },
 };
 
 // Sector names
@@ -498,57 +500,72 @@ function generateStatus(
 
   const reasons: string[] = [];
 
-  // VIX analysis
+  // VIX analysis - ALWAYS show
   const vix = indicators['VIX'];
   if (vix?.price !== undefined) {
     const desc = vix.price < 15 ? 'low' : vix.price > 25 ? 'elevated' : 'moderate';
     reasons.push(`VIX at ${vix.price.toFixed(1)} - ${desc} fear levels`);
   }
 
-  // Credit conditions
+  // Credit conditions - ALWAYS show
   if (categoryScores['creditLiquidity']?.available) {
     const desc = categoryScores['creditLiquidity'].score > 60 ? 'healthy' : categoryScores['creditLiquidity'].score < 40 ? 'stressed' : 'stable';
     reasons.push(`Credit conditions appear ${desc}`);
   }
 
-  // Yield curve
+  // Yield curve - ALWAYS show
   const yieldSpread = indicators['YIELD_SPREAD'];
   if (yieldSpread?.price !== undefined) {
     const desc = yieldSpread.price < 0 ? 'inverted (caution)' : yieldSpread.price > 0.5 ? 'steep (growth signal)' : 'flat';
     reasons.push(`Yield curve is ${desc} at ${yieldSpread.price.toFixed(2)}%`);
   }
 
-  // Market breadth
+  // Market breadth - ALWAYS show
   if (categoryScores['breadth']?.available) {
     const desc = categoryScores['breadth'].score > 60 ? 'broad participation' : categoryScores['breadth'].score < 40 ? 'narrow leadership' : 'moderate';
     reasons.push(`Market breadth shows ${desc}`);
   }
 
-  // Index momentum (SPY, QQQ)
+  // Index momentum (SPY, QQQ) - ALWAYS show
   const spy = indicators['SPY'];
   const qqq = indicators['QQQ'];
   if (spy?.changePct !== undefined || qqq?.changePct !== undefined) {
     const spyChg = spy?.changePct ?? 0;
     const qqqChg = qqq?.changePct ?? 0;
     const avgChg = (spyChg + qqqChg) / 2;
-    if (Math.abs(avgChg) > 0.5) {
-      const direction = avgChg > 0 ? 'positive' : 'negative';
-      reasons.push(`Major indices showing ${direction} momentum (${avgChg > 0 ? '+' : ''}${avgChg.toFixed(2)}%)`);
-    }
+    const direction = avgChg > 0 ? 'positive' : avgChg < 0 ? 'negative' : 'flat';
+    reasons.push(`Major indices showing ${direction} momentum (${avgChg > 0 ? '+' : ''}${avgChg.toFixed(2)}%)`);
   }
 
-  // USD strength
+  // USD strength - ALWAYS show
   const uup = indicators['UUP'];
-  if (uup?.changePct !== undefined && Math.abs(uup.changePct) > 0.2) {
-    const desc = uup.changePct > 0 ? 'strengthening (headwind for risk)' : 'weakening (tailwind for risk)';
+  if (uup?.changePct !== undefined) {
+    const desc = uup.changePct > 0.1 ? 'strengthening (headwind)' : uup.changePct < -0.1 ? 'weakening (tailwind)' : 'stable';
     reasons.push(`US Dollar ${desc}`);
   }
 
-  // Gold as safe haven
-  const gld = indicators['GLD'];
-  if (gld?.changePct !== undefined && Math.abs(gld.changePct) > 0.5) {
-    const desc = gld.changePct > 0 ? 'rising (risk-off signal)' : 'falling (risk appetite)';
-    reasons.push(`Gold ${desc} at ${gld.changePct > 0 ? '+' : ''}${gld.changePct.toFixed(2)}%`);
+  // Treasuries (TLT) - flight to safety indicator
+  const tlt = indicators['TLT'];
+  if (tlt?.changePct !== undefined) {
+    const desc = tlt.changePct > 0.3 ? 'bid (safety flows)' : tlt.changePct < -0.3 ? 'sold (risk appetite)' : 'stable';
+    reasons.push(`Long-term Treasuries ${desc}`);
+  }
+
+  // Small caps relative strength
+  const iwm = indicators['IWM'];
+  if (iwm?.changePct !== undefined && spy?.changePct !== undefined) {
+    const relStrength = iwm.changePct - spy.changePct;
+    if (Math.abs(relStrength) > 0.3) {
+      const desc = relStrength > 0 ? 'outperforming (risk-on)' : 'underperforming (risk-off)';
+      reasons.push(`Small caps ${desc} large caps`);
+    }
+  }
+
+  // High yield credit
+  const hyg = indicators['HYG'];
+  if (hyg?.changePct !== undefined) {
+    const desc = hyg.changePct > 0.2 ? 'strong (risk appetite)' : hyg.changePct < -0.2 ? 'weak (credit stress)' : 'steady';
+    reasons.push(`High yield bonds ${desc}`);
   }
 
   return { label, plan: plans[label], reasons };

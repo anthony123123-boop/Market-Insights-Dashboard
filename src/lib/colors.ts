@@ -71,10 +71,29 @@ export function getStatusColor(label: string): ScoreColors {
 }
 
 /**
- * Get bar color for sector chart
+ * Get bar color for sector chart with MORE DRAMATIC color variance
+ * <30 = Red, 30-50 = Orange/Yellow, 50-70 = Yellow-Green, 70+ = Green
  */
 export function getSectorBarColor(score: number): string {
-  return getScoreColor(score).hex;
+  const clamped = Math.max(0, Math.min(100, score));
+
+  // More dramatic color thresholds
+  if (clamped < 30) {
+    // Deep red for bearish
+    return '#ef4444';
+  } else if (clamped < 45) {
+    // Orange for weak
+    return '#f97316';
+  } else if (clamped < 55) {
+    // Yellow for neutral
+    return '#eab308';
+  } else if (clamped < 70) {
+    // Yellow-green for mildly bullish
+    return '#84cc16';
+  } else {
+    // Bright green for bullish
+    return '#22c55e';
+  }
 }
 
 /**

@@ -82,14 +82,16 @@ export function InfoTooltip({ content, position = 'bottom' }: InfoTooltipProps) 
         </svg>
       </button>
 
-      {/* Tooltip rendered via portal to avoid clipping */}
+      {/* Tooltip rendered via portal to avoid clipping - DARK solid background */}
       {isVisible && createPortal(
         <div
-          className="fixed w-[280px] px-4 py-3 text-xs text-gray-100 bg-gray-900/98 backdrop-blur-sm rounded-lg shadow-2xl border border-cyan-500/40"
+          className="fixed w-[280px] px-4 py-3 text-xs text-gray-100 rounded-lg shadow-2xl border border-cyan-500/50"
           style={{
             zIndex: 99999,
             top: tooltipPos.top,
             left: tooltipPos.left,
+            backgroundColor: '#0f1419',
+            boxShadow: '0 0 20px rgba(0, 0, 0, 0.8), 0 0 40px rgba(6, 182, 212, 0.15)',
           }}
           onMouseEnter={() => setIsVisible(true)}
           onMouseLeave={() => setIsVisible(false)}

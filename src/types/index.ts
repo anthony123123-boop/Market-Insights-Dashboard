@@ -71,10 +71,10 @@ export const MAIN_INDICATORS = [
 // Indicator categories for VIEW MORE panel
 export const INDICATOR_CATEGORIES = {
   CORE: ['SPY', 'QQQ', 'IWM', 'DIA', 'RSP'],
-  VOL_TAIL: ['VIX', 'VXX'],
-  CREDIT_LIQUIDITY: ['HYG', 'LQD', 'HYG_LQD', 'TLT', 'SHY'],
+  VOL_TAIL: ['VIX', 'VXX', 'TEDRATE'],
+  CREDIT_LIQUIDITY: ['HYG', 'LQD', 'HYG_LQD', 'TLT', 'SHY', 'BAMLH0A0HYM2'],
   USD_FX: ['UUP'],
-  RATES_YIELD: ['TNX', 'DGS2', 'DGS5', 'DGS1', 'YIELD_SPREAD', 'BAMLH0A0HYM2'],
+  RATES_YIELD: ['TNX', 'DGS2', 'DGS5', 'DGS1', 'YIELD_SPREAD', 'T10YIE'],
   COMMODITIES: ['GLD', 'SLV', 'USO'],
   BREADTH: ['RSP_SPY'],
 } as const;
@@ -105,6 +105,7 @@ export const INDICATOR_NAMES: Record<string, string> = {
   RSP: 'Equal Weight S&P',
   VIX: 'VIX',
   VXX: 'VIX Short-Term',
+  TEDRATE: 'TED Spread',
   HYG: 'High Yield',
   LQD: 'Inv. Grade Corp',
   HYG_LQD: 'HY/IG Ratio',
@@ -116,6 +117,7 @@ export const INDICATOR_NAMES: Record<string, string> = {
   DGS5: '5Y Yield',
   DGS1: '1Y Yield',
   YIELD_SPREAD: '10Y-2Y Spread',
+  T10YIE: 'Inflation Expect.',
   BAMLH0A0HYM2: 'HY OAS Spread',
   GLD: 'Gold',
   SLV: 'Silver',

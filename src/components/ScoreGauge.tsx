@@ -10,11 +10,11 @@ interface ScoreGaugeProps {
 export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
   const colors = getScoreColor(score);
 
-  // Larger dimensions for better clarity
-  const width = 120;
-  const height = 80;
-  const strokeWidth = 12;
-  const radius = 48;
+  // Taller arc with more internal space
+  const width = 130;
+  const height = 90;
+  const strokeWidth = 10;
+  const radius = 52;
   const circumference = 2 * Math.PI * radius;
 
   // Arc calculation: 180 degrees (half circle)
@@ -23,12 +23,12 @@ export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
   const filledLength = arcLength * fillPercentage;
 
   const centerX = width / 2;
-  const centerY = height - 5;
+  const centerY = height - 8;
 
   return (
-    <div className="flex flex-col items-center py-1">
+    <div className="flex flex-col items-center py-2">
       {/* Label ABOVE the arc - more prominent */}
-      <div className="flex items-center gap-1.5 mb-2">
+      <div className="flex items-center gap-1.5 mb-3">
         <span className="text-sm font-bold uppercase tracking-wider text-white">
           {label}
         </span>
@@ -71,24 +71,24 @@ export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
           />
         </svg>
 
-        {/* Center text - positioned inside arc */}
+        {/* Center text - positioned inside arc with more space */}
         <div
           className="absolute flex flex-col items-center"
           style={{
             left: '50%',
-            bottom: '4px',
+            bottom: '10px',
             transform: 'translateX(-50%)'
           }}
         >
           <span
-            className={`font-black ${colors.text} text-3xl leading-none`}
+            className={`font-black ${colors.text} text-2xl leading-none`}
             style={{
               textShadow: `0 0 25px ${colors.hex}90`
             }}
           >
             {Math.round(score)}
           </span>
-          <span className="text-gray-400 text-[11px] font-medium">/100</span>
+          <span className="text-gray-400 text-[10px] font-medium">/100</span>
         </div>
       </div>
     </div>
