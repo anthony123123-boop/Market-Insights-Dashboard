@@ -4,91 +4,82 @@ import { InfoTooltip } from './InfoTooltip';
 interface ScoreGaugeProps {
   score: number;
   label: string;
-  size?: 'sm' | 'md' | 'lg';
   tooltip?: string;
 }
 
-export function ScoreGauge({ score, label, size = 'md', tooltip }: ScoreGaugeProps) {
+export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
   const colors = getScoreColor(score);
 
-  // Compact SVG dimensions
-  const dimensions = {
-    sm: { width: 80, height: 80, strokeWidth: 6, fontSize: 18, labelSize: 10 },
-    md: { width: 100, height: 100, strokeWidth: 8, fontSize: 24, labelSize: 11 },
-    lg: { width: 120, height: 120, strokeWidth: 10, fontSize: 28, labelSize: 12 },
-  };
-
-  const { width, height, strokeWidth, fontSize, labelSize } = dimensions[size];
-  const radius = (width - strokeWidth) / 2 - 6;
+  // COMPACT dimensions - smaller arc
+  const width = 90;
+  const height = 60;
+  const strokeWidth = 8;
+  const radius = 35;
   const circumference = 2 * Math.PI * radius;
 
-  // Arc calculation: 270 degrees (3/4 of circle)
+  // Arc calculation: 180 degrees (half circle)
   const fillPercentage = score / 100;
-  const arcLength = circumference * 0.75;
+  const arcLength = circumference * 0.5; // half circle
   const filledLength = arcLength * fillPercentage;
 
   const centerX = width / 2;
-  const centerY = height / 2;
+  const centerY = height - 5;
 
   return (
     <div className="flex flex-col items-center">
       {/* Label ABOVE the arc */}
-      <div className="flex items-center gap-1.5 mb-2">
-        <span
-          className="font-semibold uppercase tracking-wider text-gray-300"
-          style={{ fontSize: `${labelSize}px` }}
-        >
+      <div className="flex items-center gap-1 mb-1">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-300">
           {label}
         </span>
         {tooltip && <InfoTooltip content={tooltip} />}
       </div>
 
-      {/* Arc gauge */}
-      <div className="relative">
-        <svg width={width} height={height} className="transform -rotate-90">
-          {/* Background arc */}
-          <circle
-            cx={centerX}
-            cy={centerY}
-            r={radius}
+      {/* Arc gauge - half circle opening upward */}
+      <div className="relative" style={{ width, height }}>
+        <svg width={width} height={height} className="overflow-visible">
+          {/* Background arc - half circle */}
+          <path
+            d={`M ${centerX - radius} ${centerY} A ${radius} ${radius} 0 0 1 ${centerX + radius} ${centerY}`}
             fill="none"
             stroke="rgba(255, 255, 255, 0.08)"
             strokeWidth={strokeWidth}
-            strokeDasharray={`${arcLength} ${circumference - arcLength}`}
-            strokeDashoffset={-circumference * 0.125}
             strokeLinecap="round"
           />
 
           {/* Filled arc */}
-          <circle
-            cx={centerX}
-            cy={centerY}
-            r={radius}
+          <path
+            d={`M ${centerX - radius} ${centerY} A ${radius} ${radius} 0 0 1 ${centerX + radius} ${centerY}`}
             fill="none"
             stroke={colors.hex}
             strokeWidth={strokeWidth}
-            strokeDasharray={`${filledLength} ${circumference - filledLength}`}
-            strokeDashoffset={-circumference * 0.125}
             strokeLinecap="round"
+            strokeDasharray={`${filledLength} ${arcLength}`}
             className="transition-all duration-700 ease-out"
             style={{
-              filter: `drop-shadow(0 0 10px ${colors.hex}80)`,
+              filter: `drop-shadow(0 0 8px ${colors.hex}80)`,
             }}
           />
         </svg>
 
-        {/* Center text */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
+        {/* Center text - positioned at bottom of arc */}
+        <div
+          className="absolute flex flex-col items-center"
+          style={{
+            left: '50%',
+            bottom: '0px',
+            transform: 'translateX(-50%)'
+          }}
+        >
           <span
-            className={`font-bold ${colors.text}`}
+            className={`font-bold ${colors.text} text-xl leading-none`}
             style={{
-              fontSize: `${fontSize}px`,
-              textShadow: `0 0 20px ${colors.hex}60`
+              textShadow: `0 0 15px ${colors.hex}60`
             }}
           >
             {Math.round(score)}
           </span>
-          <span className="text-gray-500 text-xs">/100</span>
+          <span className="text-gray-500 text-[10px]">/100</span>
         </div>
       </div>
     </div>

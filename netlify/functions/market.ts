@@ -54,6 +54,8 @@ interface AVQuoteResponse {
     '05. price': string;
     '07. latest trading day': string;
     '08. previous close': string;
+    '09. change': string;
+    '10. change percent': string;
   };
   Note?: string;
   Information?: string;
@@ -83,15 +85,6 @@ const FRED_SERIES: Record<string, { seriesId: string; displayName: string }> = {
   DGS1: { seriesId: 'DGS1', displayName: '1Y Treasury' },
   BAMLH0A0HYM2: { seriesId: 'BAMLH0A0HYM2', displayName: 'HY OAS' },
 };
-
-// Alpha Vantage symbols - minimal set for ETFs not on FRED
-const AV_EQUITY_SYMBOLS = [
-  'SPY', 'QQQ', 'IWM', 'RSP',
-  'HYG', 'LQD', 'TLT', 'SHY',
-  'UUP',
-  'GLD', 'SLV', 'USO', 'DBA',
-  'XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC',
-];
 
 // Sector names
 const SECTOR_NAMES: Record<string, string> = {
@@ -123,6 +116,11 @@ function getNYTimestamp(): string {
 
 function getISOTimestamp(): string {
   return new Date().toISOString();
+}
+
+// Delay helper
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // FRED API Functions
@@ -172,140 +170,81 @@ async function fetchFredSeries(seriesId: string, apiKey: string): Promise<{
   }
 }
 
-// Alpha Vantage API Functions with retry
-async function fetchAVQuote(symbol: string, apiKey: string, retries = 2): Promise<{
+// Alpha Vantage API Functions
+async function fetchAVQuote(symbol: string, apiKey: string): Promise<{
   price: number;
   previousClose: number;
   change: number;
   changePct: number;
   tradingDay: string;
 } | null> {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
-      const response = await fetch(url);
+  try {
+    const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
+    const response = await fetch(url);
 
-      if (!response.ok) {
-        console.warn(`AV request failed for ${symbol}: ${response.status}`);
-        continue;
-      }
-
-      const data = await response.json() as AVQuoteResponse;
-
-      if (data.Note || data.Information) {
-        console.warn(`AV rate limited for ${symbol}:`, data.Note || data.Information);
-        if (attempt < retries) {
-          await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
-          continue;
-        }
-        return null;
-      }
-
-      if (data['Error Message']) {
-        console.warn(`AV error for ${symbol}:`, data['Error Message']);
-        return null;
-      }
-
-      const quote = data['Global Quote'];
-      if (!quote || !quote['05. price']) {
-        console.warn(`AV no quote data for ${symbol}`);
-        return null;
-      }
-
-      const price = parseFloat(quote['05. price']);
-      const previousClose = parseFloat(quote['08. previous close']);
-      const change = price - previousClose;
-      const changePct = previousClose !== 0 ? (change / previousClose) * 100 : 0;
-
-      return {
-        price,
-        previousClose,
-        change,
-        changePct,
-        tradingDay: quote['07. latest trading day'],
-      };
-    } catch (error) {
-      console.error(`AV fetch error for ${symbol}:`, error);
-      if (attempt < retries) {
-        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
-      }
+    if (!response.ok) {
+      console.warn(`AV request failed for ${symbol}: ${response.status}`);
+      return null;
     }
+
+    const data = await response.json() as AVQuoteResponse;
+
+    if (data.Note || data.Information) {
+      console.warn(`AV rate limited for ${symbol}:`, data.Note || data.Information);
+      return null;
+    }
+
+    if (data['Error Message']) {
+      console.warn(`AV error for ${symbol}:`, data['Error Message']);
+      return null;
+    }
+
+    const quote = data['Global Quote'];
+    if (!quote || !quote['05. price']) {
+      console.warn(`AV no quote data for ${symbol}`);
+      return null;
+    }
+
+    const price = parseFloat(quote['05. price']);
+    const previousClose = parseFloat(quote['08. previous close']);
+    const change = parseFloat(quote['09. change']);
+    const changePctStr = quote['10. change percent']?.replace('%', '') || '0';
+    const changePct = parseFloat(changePctStr);
+
+    return {
+      price,
+      previousClose,
+      change,
+      changePct,
+      tradingDay: quote['07. latest trading day'],
+    };
+  } catch (error) {
+    console.error(`AV fetch error for ${symbol}:`, error);
+    return null;
   }
-  return null;
 }
 
-// Helper to fetch AV quote with result mapping
-async function fetchAVQuoteWithTicker(ticker: string, avKey: string): Promise<{
-  ticker: string;
-  result: Awaited<ReturnType<typeof fetchAVQuote>>;
-}> {
-  const result = await fetchAVQuote(ticker, avKey, 1); // Reduced retries for speed
-  return { ticker, result };
-}
+// Fetch AV symbols in parallel (no delays - rely on caching)
+async function fetchAVSymbols(
+  symbols: string[],
+  apiKey: string,
+  indicators: Record<string, Indicator>,
+  warnings: string[]
+): Promise<void> {
+  // Fetch ALL symbols in parallel
+  const results = await Promise.all(
+    symbols.map(async (symbol) => {
+      const result = await fetchAVQuote(symbol, apiKey);
+      return { symbol, result };
+    })
+  );
 
-// Batch fetch to minimize API calls
-async function fetchAllData(fredKey: string, avKey: string): Promise<{
-  indicators: Record<string, Indicator>;
-  warnings: string[];
-}> {
-  const indicators: Record<string, Indicator> = {};
-  const warnings: string[] = [];
-
-  // 1. Fetch FRED data first (priority - no rate limits) - ALL IN PARALLEL
-  console.log('Fetching FRED data...');
-  const fredPromises: Promise<void>[] = [];
-
-  for (const [ticker, config] of Object.entries(FRED_SERIES)) {
-    fredPromises.push(
-      fetchFredSeries(config.seriesId, fredKey).then(result => {
-        if (result) {
-          const change = result.price - result.previousClose;
-          const changePct = result.previousClose !== 0 ? (change / result.previousClose) * 100 : 0;
-
-          indicators[ticker] = {
-            displayName: config.displayName,
-            ticker,
-            price: result.price,
-            previousClose: result.previousClose,
-            change,
-            changePct,
-            session: 'CLOSE',
-            asOfET: getNYTimestamp(),
-            source: 'FRED',
-          };
-        } else {
-          warnings.push(`FRED data unavailable for ${ticker}`);
-        }
-      })
-    );
-  }
-
-  await Promise.all(fredPromises);
-
-  // 2. Fetch Alpha Vantage data IN PARALLEL BATCHES (much faster)
-  console.log('Fetching Alpha Vantage data...');
-
-  // Priority order - essential tickers first
-  const allTickers = [
-    // Core (most important for scoring)
-    'SPY', 'QQQ', 'IWM', 'RSP',
-    // Credit/USD
-    'HYG', 'LQD', 'TLT', 'UUP', 'GLD',
-    // Sectors
-    'XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC',
-    // Other
-    'SHY', 'SLV', 'USO', 'DBA',
-  ];
-
-  // Fetch ALL Alpha Vantage tickers in parallel (Alpha Vantage allows 5/min on free tier, but we're cached)
-  const avPromises = allTickers.map(ticker => fetchAVQuoteWithTicker(ticker, avKey));
-  const avResults = await Promise.all(avPromises);
-
-  for (const { ticker, result } of avResults) {
+  // Process results
+  for (const { symbol, result } of results) {
     if (result) {
-      indicators[ticker] = {
-        displayName: ticker,
-        ticker,
+      indicators[symbol] = {
+        displayName: symbol,
+        ticker: symbol,
         price: result.price,
         previousClose: result.previousClose,
         change: result.change,
@@ -315,25 +254,75 @@ async function fetchAllData(fredKey: string, avKey: string): Promise<{
         source: 'AV',
       };
     } else {
-      warnings.push(`Alpha Vantage data unavailable for ${ticker}`);
+      warnings.push(`Alpha Vantage data unavailable for ${symbol}`);
     }
   }
+}
+
+// Optimized fetch - prioritize essential data, limit AV calls
+async function fetchAllData(fredKey: string, avKey: string): Promise<{
+  indicators: Record<string, Indicator>;
+  warnings: string[];
+}> {
+  const indicators: Record<string, Indicator> = {};
+  const warnings: string[] = [];
+
+  // 1. Fetch ALL FRED data in parallel (no rate limits)
+  console.log('Fetching FRED data...');
+  const fredPromises = Object.entries(FRED_SERIES).map(async ([ticker, config]) => {
+    const result = await fetchFredSeries(config.seriesId, fredKey);
+    if (result) {
+      const change = result.price - result.previousClose;
+      const changePct = result.previousClose !== 0 ? (change / result.previousClose) * 100 : 0;
+
+      indicators[ticker] = {
+        displayName: config.displayName,
+        ticker,
+        price: result.price,
+        previousClose: result.previousClose,
+        change,
+        changePct,
+        session: 'CLOSE',
+        asOfET: getNYTimestamp(),
+        source: 'FRED',
+      };
+    } else {
+      warnings.push(`FRED data unavailable for ${ticker}`);
+    }
+  });
+
+  await Promise.all(fredPromises);
+
+  // 2. Fetch Alpha Vantage data - ALL IN PARALLEL
+  // With 1-hour caching, we only hit the API once per hour
+  // Free tier = 5 calls/min BUT we cache for 1 hour so this is fine
+  console.log('Fetching Alpha Vantage data...');
+
+  // ALL symbols we need - core indices + all sectors
+  const allSymbols = [
+    // Core indices (for scoring)
+    'SPY', 'QQQ', 'IWM', 'HYG', 'TLT',
+    // All sectors (for sector chart)
+    'XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC',
+  ];
+
+  await fetchAVSymbols(allSymbols, avKey, indicators, warnings);
 
   // 3. Calculate derived indicators (PROXY)
   console.log('Calculating derived indicators...');
 
-  // HYG/LQD Ratio
+  // HYG/LQD Ratio - use HYG and TLT since we have them
   const hyg = indicators['HYG'];
-  const lqd = indicators['LQD'];
-  if (hyg && lqd && hyg.price && lqd.price) {
-    const ratio = hyg.price / lqd.price;
-    const prevRatio = (hyg.previousClose ?? 0) / (lqd.previousClose ?? 1);
+  const tlt = indicators['TLT'];
+  if (hyg && tlt && hyg.price && tlt.price) {
+    const ratio = hyg.price / tlt.price;
+    const prevRatio = (hyg.previousClose ?? 0) / (tlt.previousClose ?? 1);
     const change = ratio - prevRatio;
     const changePct = prevRatio !== 0 ? (change / prevRatio) * 100 : 0;
 
-    indicators['HYG_LQD_RATIO'] = {
-      displayName: 'HYG/LQD Ratio',
-      ticker: 'HYG_LQD_RATIO',
+    indicators['HYG_TLT_RATIO'] = {
+      displayName: 'HYG/TLT Ratio',
+      ticker: 'HYG_TLT_RATIO',
       price: ratio,
       previousClose: prevRatio,
       change,
@@ -363,29 +352,9 @@ async function fetchAllData(fredKey: string, avKey: string): Promise<{
     };
   }
 
-  // RSP/SPY Ratio (breadth)
-  const rsp = indicators['RSP'];
-  const spy = indicators['SPY'];
-  if (rsp && spy && rsp.price && spy.price) {
-    const ratio = rsp.price / spy.price;
-    const prevRatio = (rsp.previousClose ?? 0) / (spy.previousClose ?? 1);
-    const change = ratio - prevRatio;
-    const changePct = prevRatio !== 0 ? (change / prevRatio) * 100 : 0;
-
-    indicators['RSP_SPY_RATIO'] = {
-      displayName: 'RSP/SPY Ratio',
-      ticker: 'RSP_SPY_RATIO',
-      price: ratio,
-      previousClose: prevRatio,
-      change,
-      changePct,
-      session: 'CLOSE',
-      source: 'PROXY',
-    };
-  }
-
   // IWM/SPY Ratio (small cap relative)
   const iwm = indicators['IWM'];
+  const spy = indicators['SPY'];
   if (iwm && spy && iwm.price && spy.price) {
     const ratio = iwm.price / spy.price;
     const prevRatio = (iwm.previousClose ?? 0) / (spy.previousClose ?? 1);
@@ -401,18 +370,6 @@ async function fetchAllData(fredKey: string, avKey: string): Promise<{
       changePct,
       session: 'CLOSE',
       source: 'PROXY',
-    };
-  }
-
-  // Use UUP as DXY proxy (add alias)
-  const uup = indicators['UUP'];
-  if (uup) {
-    indicators['DXY'] = {
-      ...uup,
-      displayName: 'USD Index (UUP)',
-      ticker: 'DXY',
-      isProxy: true,
-      proxyNote: 'Using UUP ETF as DXY proxy',
     };
   }
 
@@ -469,7 +426,7 @@ function calculateCreditScore(indicators: Record<string, Indicator>): { score: n
   let count = 0;
 
   const hygInd = indicators['HYG'];
-  const hygLqdRatio = indicators['HYG_LQD_RATIO'];
+  const hygTltRatio = indicators['HYG_TLT_RATIO'];
   const tltInd = indicators['TLT'];
   const hyOas = indicators['BAMLH0A0HYM2'];
 
@@ -479,13 +436,13 @@ function calculateCreditScore(indicators: Record<string, Indicator>): { score: n
   }
 
   if (hygInd?.changePct !== undefined) {
-    totalScore += normalize(hygInd.changePct, -2, 2) * 0.25;
-    count += 0.25;
+    totalScore += normalize(hygInd.changePct, -2, 2) * 0.3;
+    count += 0.3;
   }
 
-  if (hygLqdRatio?.changePct !== undefined) {
-    totalScore += normalize(hygLqdRatio.changePct, -1, 1) * 0.2;
-    count += 0.2;
+  if (hygTltRatio?.changePct !== undefined) {
+    totalScore += normalize(hygTltRatio.changePct, -1, 1) * 0.15;
+    count += 0.15;
   }
 
   if (tltInd?.changePct !== undefined) {
@@ -519,32 +476,15 @@ function calculateRatesScore(indicators: Record<string, Indicator>): { score: nu
   return { score: totalScore / count, available: true };
 }
 
-function calculateUsdFxScore(indicators: Record<string, Indicator>): { score: number; available: boolean } {
-  const uupInd = indicators['UUP'];
-
-  if (uupInd?.changePct !== undefined) {
-    const score = normalize(uupInd.changePct, -1.5, 1.5, true);
-    return { score, available: true };
-  }
-
-  return { score: 50, available: false };
-}
-
 function calculateBreadthScore(indicators: Record<string, Indicator>): { score: number; available: boolean } {
   let totalScore = 0;
   let count = 0;
 
-  const rspSpyRatio = indicators['RSP_SPY_RATIO'];
   const iwmSpyRatio = indicators['IWM_SPY_RATIO'];
 
-  if (rspSpyRatio?.changePct !== undefined) {
-    totalScore += normalize(rspSpyRatio.changePct, -1, 1) * 0.5;
-    count += 0.5;
-  }
-
   if (iwmSpyRatio?.changePct !== undefined) {
-    totalScore += normalize(iwmSpyRatio.changePct, -1.5, 1.5) * 0.5;
-    count += 0.5;
+    totalScore += normalize(iwmSpyRatio.changePct, -1.5, 1.5);
+    count += 1;
   }
 
   if (count === 0) return { score: 50, available: false };
@@ -557,19 +497,17 @@ function calculateScores(indicators: Record<string, Indicator>): {
   missingCategories: string[];
 } {
   const weights = {
-    trend: 0.25,
-    volTail: 0.20,
-    creditLiquidity: 0.15,
-    rates: 0.10,
-    usdFx: 0.10,
-    breadth: 0.20,
+    trend: 0.30,
+    volTail: 0.25,
+    creditLiquidity: 0.20,
+    rates: 0.15,
+    breadth: 0.10,
   };
 
   const trend = calculateTrendScore(indicators);
   const volTail = calculateVolTailScore(indicators);
   const creditLiquidity = calculateCreditScore(indicators);
   const rates = calculateRatesScore(indicators);
-  const usdFx = calculateUsdFxScore(indicators);
   const breadth = calculateBreadthScore(indicators);
 
   const categoryScores: Record<string, { score: number; available: boolean; weight: number }> = {
@@ -577,7 +515,6 @@ function calculateScores(indicators: Record<string, Indicator>): {
     volTail: { ...volTail, weight: weights.volTail },
     creditLiquidity: { ...creditLiquidity, weight: weights.creditLiquidity },
     rates: { ...rates, weight: weights.rates },
-    usdFx: { ...usdFx, weight: weights.usdFx },
     breadth: { ...breadth, weight: weights.breadth },
   };
 
@@ -656,11 +593,6 @@ function generateStatus(
 
   const reasons: string[] = [];
 
-  if (categoryScores['trend']?.available) {
-    const trendDesc = categoryScores['trend'].score > 60 ? 'positive' : categoryScores['trend'].score < 40 ? 'negative' : 'neutral';
-    reasons.push(`Trend momentum is ${trendDesc} (${Math.round(categoryScores['trend'].score)}/100)`);
-  }
-
   if (categoryScores['volTail']?.available) {
     const vixInd = indicators['VIX'];
     if (vixInd?.price !== undefined) {
@@ -674,11 +606,6 @@ function generateStatus(
     reasons.push(`Credit conditions appear ${creditDesc}`);
   }
 
-  if (categoryScores['breadth']?.available) {
-    const breadthDesc = categoryScores['breadth'].score > 60 ? 'broad' : categoryScores['breadth'].score < 40 ? 'narrow' : 'moderate';
-    reasons.push(`Market breadth is ${breadthDesc}`);
-  }
-
   const yieldSpread = indicators['YIELD_SPREAD'];
   if (yieldSpread?.price !== undefined) {
     const curveDesc = yieldSpread.price < -0.2 ? 'inverted (recessionary signal)' : yieldSpread.price > 0.5 ? 'steep (growth signal)' : 'flat';
@@ -689,7 +616,7 @@ function generateStatus(
     reasons.push(`Note: Some data unavailable (${missingCategories.join(', ')})`);
   }
 
-  return { label, plan, reasons: reasons.slice(0, 6) };
+  return { label, plan, reasons: reasons.slice(0, 5) };
 }
 
 function calculateSectorScores(indicators: Record<string, Indicator>): Sector[] {
@@ -703,8 +630,10 @@ function calculateSectorScores(indicators: Record<string, Indicator>): Sector[] 
       return { ticker, name, score: 50 };
     }
 
-    const pct = (sector.price - sector.previousClose) / sector.previousClose;
-    const score = Math.round(Math.max(0, Math.min(100, 50 + pct * 1000)));
+    // Calculate score based on daily change
+    // +3% = score 100, -3% = score 0, 0% = score 50
+    const changePct = sector.changePct ?? 0;
+    const score = Math.round(Math.max(0, Math.min(100, 50 + changePct * 16.67)));
 
     return {
       ticker,

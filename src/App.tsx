@@ -80,7 +80,7 @@ function App() {
 
       <div className="relative max-w-7xl mx-auto px-4 py-6">
         {/* Header */}
-        <header className="mb-6">
+        <header className="mb-4">
           <h1 className="text-2xl font-bold text-center mb-2 bg-gradient-to-r from-blue-400 via-cyan-400 to-purple-400 bg-clip-text text-transparent">
             MARKET INSIGHTS DASHBOARD
           </h1>
@@ -106,97 +106,44 @@ function App() {
           )}
         </header>
 
-        {/* Score Pills Row - 3 scores + regime in one row */}
-        <div className="grid grid-cols-4 gap-3 mb-4">
-          {/* Short Term */}
-          <FrostedCard className="flex items-center justify-center py-4">
+        {/* Main Grid - 4 columns with regime spanning 2 rows */}
+        <div className="grid grid-cols-4 gap-3 mb-4" style={{ gridTemplateRows: 'auto auto' }}>
+          {/* Short Term - Row 1, Col 1 */}
+          <FrostedCard className="flex items-center justify-center py-3">
             <ScoreGauge
               score={data.scores.short}
               label="Short Term"
-              size="md"
               tooltip={SCORE_TOOLTIPS.short}
             />
           </FrostedCard>
 
-          {/* Medium Term */}
-          <FrostedCard className="flex items-center justify-center py-4">
+          {/* Medium Term - Row 1, Col 2 */}
+          <FrostedCard className="flex items-center justify-center py-3">
             <ScoreGauge
               score={data.scores.medium}
               label="Medium Term"
-              size="md"
               tooltip={SCORE_TOOLTIPS.medium}
             />
           </FrostedCard>
 
-          {/* Long Term */}
-          <FrostedCard className="flex items-center justify-center py-4">
+          {/* Long Term - Row 1, Col 3 */}
+          <FrostedCard className="flex items-center justify-center py-3">
             <ScoreGauge
               score={data.scores.long}
               label="Long Term"
-              size="md"
               tooltip={SCORE_TOOLTIPS.long}
             />
           </FrostedCard>
 
-          {/* Status Card - same height as score pills in this row */}
-          <StatusCard status={data.status} />
-        </div>
+          {/* Status Card - Row 1-2, Col 4 (spans 2 rows) */}
+          <div className="row-span-2">
+            <StatusCard status={data.status} />
+          </div>
 
-        {/* Sector Chart - Full width, aligned with scores above */}
-        <div className="grid grid-cols-4 gap-3 mb-4">
-          {/* Sector Chart spans 3 columns */}
+          {/* Sector Chart - Row 2, Cols 1-3 */}
           <div className="col-span-3">
             <SectorChart sectors={data.sectors} />
           </div>
-
-          {/* Extended Regime Details */}
-          <FrostedCard className="h-full flex flex-col">
-            <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">
-              Macro Conditions
-            </div>
-            <div className="flex-1 space-y-2 text-xs">
-              {data.categoryScores['volTail']?.available && (
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">Volatility</span>
-                  <span className={data.categoryScores['volTail'].score > 60 ? 'text-green-400' : data.categoryScores['volTail'].score < 40 ? 'text-red-400' : 'text-yellow-400'}>
-                    {Math.round(data.categoryScores['volTail'].score)}/100
-                  </span>
-                </div>
-              )}
-              {data.categoryScores['creditLiquidity']?.available && (
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">Credit</span>
-                  <span className={data.categoryScores['creditLiquidity'].score > 60 ? 'text-green-400' : data.categoryScores['creditLiquidity'].score < 40 ? 'text-red-400' : 'text-yellow-400'}>
-                    {Math.round(data.categoryScores['creditLiquidity'].score)}/100
-                  </span>
-                </div>
-              )}
-              {data.categoryScores['rates']?.available && (
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">Rates</span>
-                  <span className={data.categoryScores['rates'].score > 60 ? 'text-green-400' : data.categoryScores['rates'].score < 40 ? 'text-red-400' : 'text-yellow-400'}>
-                    {Math.round(data.categoryScores['rates'].score)}/100
-                  </span>
-                </div>
-              )}
-              {data.categoryScores['trend']?.available && (
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">Trend</span>
-                  <span className={data.categoryScores['trend'].score > 60 ? 'text-green-400' : data.categoryScores['trend'].score < 40 ? 'text-red-400' : 'text-yellow-400'}>
-                    {Math.round(data.categoryScores['trend'].score)}/100
-                  </span>
-                </div>
-              )}
-              {data.categoryScores['breadth']?.available && (
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">Breadth</span>
-                  <span className={data.categoryScores['breadth'].score > 60 ? 'text-green-400' : data.categoryScores['breadth'].score < 40 ? 'text-red-400' : 'text-yellow-400'}>
-                    {Math.round(data.categoryScores['breadth'].score)}/100
-                  </span>
-                </div>
-              )}
-            </div>
-          </FrostedCard>
         </div>
 
         {/* Key Indicators */}
