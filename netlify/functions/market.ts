@@ -497,26 +497,58 @@ function generateStatus(
   };
 
   const reasons: string[] = [];
+
+  // VIX analysis
   const vix = indicators['VIX'];
   if (vix?.price !== undefined) {
     const desc = vix.price < 15 ? 'low' : vix.price > 25 ? 'elevated' : 'moderate';
     reasons.push(`VIX at ${vix.price.toFixed(1)} - ${desc} fear levels`);
   }
 
+  // Credit conditions
   if (categoryScores['creditLiquidity']?.available) {
     const desc = categoryScores['creditLiquidity'].score > 60 ? 'healthy' : categoryScores['creditLiquidity'].score < 40 ? 'stressed' : 'stable';
     reasons.push(`Credit conditions appear ${desc}`);
   }
 
+  // Yield curve
   const yieldSpread = indicators['YIELD_SPREAD'];
   if (yieldSpread?.price !== undefined) {
     const desc = yieldSpread.price < 0 ? 'inverted (caution)' : yieldSpread.price > 0.5 ? 'steep (growth signal)' : 'flat';
     reasons.push(`Yield curve is ${desc} at ${yieldSpread.price.toFixed(2)}%`);
   }
 
+  // Market breadth
   if (categoryScores['breadth']?.available) {
     const desc = categoryScores['breadth'].score > 60 ? 'broad participation' : categoryScores['breadth'].score < 40 ? 'narrow leadership' : 'moderate';
     reasons.push(`Market breadth shows ${desc}`);
+  }
+
+  // Index momentum (SPY, QQQ)
+  const spy = indicators['SPY'];
+  const qqq = indicators['QQQ'];
+  if (spy?.changePct !== undefined || qqq?.changePct !== undefined) {
+    const spyChg = spy?.changePct ?? 0;
+    const qqqChg = qqq?.changePct ?? 0;
+    const avgChg = (spyChg + qqqChg) / 2;
+    if (Math.abs(avgChg) > 0.5) {
+      const direction = avgChg > 0 ? 'positive' : 'negative';
+      reasons.push(`Major indices showing ${direction} momentum (${avgChg > 0 ? '+' : ''}${avgChg.toFixed(2)}%)`);
+    }
+  }
+
+  // USD strength
+  const uup = indicators['UUP'];
+  if (uup?.changePct !== undefined && Math.abs(uup.changePct) > 0.2) {
+    const desc = uup.changePct > 0 ? 'strengthening (headwind for risk)' : 'weakening (tailwind for risk)';
+    reasons.push(`US Dollar ${desc}`);
+  }
+
+  // Gold as safe haven
+  const gld = indicators['GLD'];
+  if (gld?.changePct !== undefined && Math.abs(gld.changePct) > 0.5) {
+    const desc = gld.changePct > 0 ? 'rising (risk-off signal)' : 'falling (risk appetite)';
+    reasons.push(`Gold ${desc} at ${gld.changePct > 0 ? '+' : ''}${gld.changePct.toFixed(2)}%`);
   }
 
   return { label, plan: plans[label], reasons };

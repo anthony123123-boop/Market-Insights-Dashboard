@@ -12,8 +12,8 @@ export function StatusCard({ status }: StatusCardProps) {
   return (
     <FrostedCard className="h-full flex flex-col" glowColor={colors.hex}>
       {/* Regime Label - prominent at top */}
-      <div className="text-center pb-3 border-b border-white/5">
-        <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">
+      <div className="text-center pb-3 border-b border-white/10">
+        <div className="text-[10px] text-gray-400 uppercase tracking-widest mb-1">
           Market Regime
         </div>
         <div
@@ -24,37 +24,40 @@ export function StatusCard({ status }: StatusCardProps) {
         </div>
       </div>
 
-      {/* Plan of Action */}
-      <div className="py-3 border-b border-white/5">
-        <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1.5">
+      {/* Plan of Action - More visible text */}
+      <div className="py-3 border-b border-white/10">
+        <div className="text-[10px] text-cyan-400/80 uppercase tracking-widest mb-1.5 font-medium">
           Plan of Action
         </div>
-        <p className="text-sm text-gray-200 leading-relaxed">{status.plan}</p>
+        <p className="text-sm text-white leading-relaxed font-medium">{status.plan}</p>
       </div>
 
       {/* Key Drivers - scrollable if needed */}
       <div className="flex-1 py-3 overflow-y-auto">
-        <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-2">
+        <div className="text-[10px] text-cyan-400/80 uppercase tracking-widest mb-2 font-medium">
           Key Drivers
         </div>
-        <ul className="space-y-2">
+        <ul className="space-y-2.5">
           {status.reasons.map((reason, index) => (
             <li key={index} className="flex items-start text-xs">
               <span
-                className="w-1.5 h-1.5 rounded-full mt-1.5 mr-2 flex-shrink-0"
-                style={{ backgroundColor: colors.hex }}
+                className="w-2 h-2 rounded-full mt-1 mr-2 flex-shrink-0"
+                style={{
+                  backgroundColor: colors.hex,
+                  boxShadow: `0 0 6px ${colors.hex}80`
+                }}
               />
-              <span className="text-gray-300 leading-relaxed">{reason}</span>
+              <span className="text-gray-100 leading-relaxed">{reason}</span>
             </li>
           ))}
         </ul>
       </div>
 
       {/* Summary footer */}
-      <div className="pt-2 border-t border-white/5">
+      <div className="pt-2 border-t border-white/10">
         <div className="flex items-center justify-between text-[10px]">
-          <span className="text-gray-500">Analysis based on macro/micro signals</span>
-          <span className={`font-semibold ${colors.text}`}>
+          <span className="text-gray-400">Analysis based on macro/micro signals</span>
+          <span className={`font-bold ${colors.text}`}>
             {status.label === 'RISK-ON' ? '▲ Bullish' :
              status.label === 'RISK-OFF' ? '▼ Bearish' :
              status.label === 'CHOPPY' ? '◆ Volatile' : '● Neutral'}

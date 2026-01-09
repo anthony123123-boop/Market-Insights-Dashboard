@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 interface InfoTooltipProps {
   content: string;
@@ -7,31 +8,66 @@ interface InfoTooltipProps {
 
 export function InfoTooltip({ content, position = 'bottom' }: InfoTooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
-  const positionClasses = {
-    top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
-    bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
-    left: 'right-full top-1/2 -translate-y-1/2 mr-2',
-    right: 'left-full top-1/2 -translate-y-1/2 ml-2',
-  };
+  useEffect(() => {
+    if (isVisible && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const tooltipWidth = 280;
+      const tooltipHeight = 120;
+      const padding = 8;
 
-  const arrowClasses = {
-    top: 'top-full left-1/2 -translate-x-1/2 border-t-gray-900',
-    bottom: 'bottom-full left-1/2 -translate-x-1/2 border-b-gray-900',
-    left: 'left-full top-1/2 -translate-y-1/2 border-l-gray-900',
-    right: 'right-full top-1/2 -translate-y-1/2 border-r-gray-900',
-  };
+      let top = 0;
+      let left = 0;
+
+      // Calculate position based on preference, but adjust if would go off-screen
+      if (position === 'bottom' || position === 'top') {
+        left = rect.left + rect.width / 2 - tooltipWidth / 2;
+
+        // Adjust if going off left edge
+        if (left < padding) left = padding;
+        // Adjust if going off right edge
+        if (left + tooltipWidth > window.innerWidth - padding) {
+          left = window.innerWidth - tooltipWidth - padding;
+        }
+
+        if (position === 'bottom') {
+          top = rect.bottom + 8;
+          // If would go off bottom, show on top instead
+          if (top + tooltipHeight > window.innerHeight - padding) {
+            top = rect.top - tooltipHeight - 8;
+          }
+        } else {
+          top = rect.top - tooltipHeight - 8;
+          // If would go off top, show on bottom instead
+          if (top < padding) {
+            top = rect.bottom + 8;
+          }
+        }
+      } else {
+        top = rect.top + rect.height / 2 - tooltipHeight / 2;
+
+        if (position === 'right') {
+          left = rect.right + 8;
+        } else {
+          left = rect.left - tooltipWidth - 8;
+        }
+      }
+
+      setTooltipPos({ top, left });
+    }
+  }, [isVisible, position]);
 
   return (
-    <div
-      className="relative inline-flex"
-      onMouseEnter={() => setIsVisible(true)}
-      onMouseLeave={() => setIsVisible(false)}
-    >
+    <div className="relative inline-flex">
       {/* Info icon */}
       <button
+        ref={buttonRef}
         className="w-4 h-4 rounded-full bg-white/10 hover:bg-cyan-500/30 flex items-center justify-center transition-colors cursor-help"
         aria-label="More information"
+        onMouseEnter={() => setIsVisible(true)}
+        onMouseLeave={() => setIsVisible(false)}
       >
         <svg
           className="w-2.5 h-2.5 text-gray-400"
@@ -46,18 +82,21 @@ export function InfoTooltip({ content, position = 'bottom' }: InfoTooltipProps) 
         </svg>
       </button>
 
-      {/* Tooltip - HIGH z-index and solid background */}
-      {isVisible && (
+      {/* Tooltip rendered via portal to avoid clipping */}
+      {isVisible && createPortal(
         <div
-          className={`absolute ${positionClasses[position]} w-64 px-3 py-2 text-xs text-gray-100 bg-gray-900 rounded-lg shadow-2xl border border-cyan-500/30`}
-          style={{ zIndex: 9999 }}
+          className="fixed w-[280px] px-4 py-3 text-xs text-gray-100 bg-gray-900/98 backdrop-blur-sm rounded-lg shadow-2xl border border-cyan-500/40"
+          style={{
+            zIndex: 99999,
+            top: tooltipPos.top,
+            left: tooltipPos.left,
+          }}
+          onMouseEnter={() => setIsVisible(true)}
+          onMouseLeave={() => setIsVisible(false)}
         >
-          <div className="whitespace-pre-line">{content}</div>
-          {/* Arrow */}
-          <div
-            className={`absolute w-0 h-0 border-4 border-transparent ${arrowClasses[position]}`}
-          />
-        </div>
+          <div className="whitespace-pre-line leading-relaxed">{content}</div>
+        </div>,
+        document.body
       )}
     </div>
   );

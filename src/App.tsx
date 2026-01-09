@@ -160,7 +160,7 @@ function App() {
           </div>
         </div>
 
-        {/* Key Indicators */}
+        {/* Key Indicators - Full width, larger pods */}
         <section className="mb-4">
           <div className="flex items-center gap-2 mb-3">
             <h2 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
@@ -168,12 +168,12 @@ function App() {
             </h2>
             <InfoTooltip content={KEY_INDICATORS_TOOLTIP} />
           </div>
-          <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2">
-            {displayIndicators.slice(0, 9).map((indicator) => (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {displayIndicators.slice(0, 6).map((indicator) => (
               <IndicatorPill
                 key={indicator.ticker}
                 indicator={indicator}
-                size="sm"
+                size="md"
                 showSource
               />
             ))}
