@@ -1,300 +1,213 @@
 # Market Insights Dashboard
 
-A **swing/long-term** market analysis dashboard that provides short, medium, and long-term market outlook scores based on multiple indicators including volatility, credit conditions, and market breadth.
+A PC-first web dashboard that automatically pulls and analyzes market indicators, providing real-time market regime analysis and scoring.
 
-![Dashboard Preview](./public/wireframe.png)
+![Dashboard Preview](https://via.placeholder.com/800x400?text=Market+Insights+Dashboard)
 
 ## Features
 
-- **Hourly Refresh (60-minute cache)**: Optimized for swing/long-term analysis, not day trading
-- **Multi-timeframe Analysis**: Short-term (1-5 days), Medium-term (2-6 weeks), Long-term (3-12 months)
-- **Sector Analysis**: Sector ETF attraction scores with visual bar chart
-- **Comprehensive Indicators**: VIX, credit spreads, yield curves, FX, and more
-- **Robust Caching**: Last-known-good fallback ensures stability when providers fail
-- **Dark Theme**: Beautiful frosted glass UI with score-based color coding
-- **Mobile Responsive**: Works seamlessly on phone and desktop
-- **Source Attribution**: Each indicator shows its data source
-
-## Why Hourly Refresh?
-
-This dashboard is designed for **swing traders and long-term investors**, not day traders:
-
-1. **Stability over speed**: A 60-minute cache ensures the dashboard shows consistent data even when providers have temporary issues
-2. **Last-known-good fallback**: If a provider fails, the dashboard shows the last successful data instead of N/A
-3. **Rate limit friendly**: Hourly refresh stays well within free tier limits of all data providers
-4. **Meaningful for swing trading**: Hourly data is sufficient for decisions on 1-day to 12-month timeframes
-
-For day trading or real-time data, consider a paid data provider with lower latency.
+- **Real-time Market Scores**: Short-term, Medium-term, and Long-term market health scores (0-100)
+- **Market Regime Classification**: Automatic classification (RISK-ON, NEUTRAL, RISK-OFF, CHOPPY)
+- **Sector Attraction Chart**: Visual comparison of 10 major sector ETFs
+- **Comprehensive Indicators**: 30+ indicators from FRED and Alpha Vantage
+- **Smart Caching**: Server-side and client-side caching for fast loads
+- **Dark Theme**: Modern frosted-glass UI design
 
 ## Data Sources
 
-| Source | Data | API Key | Rate Limit |
-|--------|------|---------|------------|
-| **Stooq** | ETFs, US Equities (PRIMARY) | Not required | No limit |
-| **FRED** | VIX (VIXCLS), Treasury Yields | Required | 120/minute |
+This dashboard uses **only free APIs**:
 
-All sources are:
-- Free tier available
-- Netlify/Vercel/serverless compatible
-- Rate-limit resistant via 60-minute caching
-- Have last-known-good fallback on failure
+1. **FRED** (Federal Reserve Economic Data) - Primary source for macro data
+   - VIX, Treasury yields, credit spreads, economic indicators
+   - 120 requests/minute rate limit
 
-**Note**: FRED_API_KEY is required for VIX and Treasury yields. Without it, the dashboard still works for equity/ETF data, but volatility and rates categories will be unavailable.
+2. **Alpha Vantage** - Secondary source for ETF prices
+   - ETF prices (SPY, QQQ, sectors, etc.)
+   - Free tier: 25 requests/day (handled with caching)
 
-## Tech Stack
+## Quick Start
 
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript (strict mode)
-- **Styling**: Tailwind CSS
-- **Icons**: Lucide React
-- **Data Validation**: Zod
+### Prerequisites
 
-## Prerequisites
+- Node.js 18+
+- FRED API Key (free): [Get one here](https://fred.stlouisfed.org/docs/api/api_key.html)
+- Alpha Vantage API Key (free): [Get one here](https://www.alphavantage.co/support/#api-key)
 
-- Node.js 18+ (LTS recommended)
-- npm or yarn
-- API Keys:
-  - FRED (free, required for VIX+rates): https://fred.stlouisfed.org/docs/api/api_key.html
+### Local Development
 
-## Local Development
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/UPDATED-MARKET-DASHBOARD.git
+   cd UPDATED-MARKET-DASHBOARD
+   ```
 
-### 1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-```bash
-git clone <your-repo-url>
-cd market-insights-dashboard
-```
+3. Create a `.env` file:
+   ```bash
+   cp .env.example .env
+   ```
 
-### 2. Install dependencies
+4. Add your API keys to `.env`:
+   ```
+   FRED_API_KEY=your_fred_api_key_here
+   ALPHAVANTAGE_API_KEY=your_alphavantage_api_key_here
+   ```
 
-```bash
-npm install
-```
+5. Run development server:
+   ```bash
+   npm run netlify-dev
+   ```
 
-### 3. Configure environment
+6. Open http://localhost:8888 in your browser
 
-```bash
-cp .env.example .env.local
-```
-
-Edit `.env.local` and add your API key:
-
-```
-FRED_API_KEY=your_fred_key
-```
-
-### 4. Run development server
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### 5. QA Layout Verification
-
-Visit [http://localhost:3000/qa/layout](http://localhost:3000/qa/layout) to compare the dashboard against the wireframe overlay.
-
-## Running Tests
-
-### Unit Tests
-
-```bash
-npm test
-```
-
-### E2E Tests (Playwright)
-
-```bash
-# Install Playwright browsers (first time only)
-npx playwright install
-
-# Run tests
-npm run test:e2e
-```
-
-### All Tests
-
-```bash
-npm run test:all
-```
-
-## Building for Production
+### Production Build
 
 ```bash
 npm run build
-npm start
 ```
 
-## Deployment
+## Deploying to Netlify
 
-### Deploy to Vercel (Recommended)
+### One-Click Deploy
 
-1. Push your code to GitHub
-2. Go to [vercel.com](https://vercel.com) and sign in
-3. Click "New Project" and import your repository
-4. Add environment variables:
-   - `ALPHAVANTAGE_API_KEY` (required)
-   - `FRED_API_KEY` (required for yields)
-5. Click "Deploy"
-6. Your dashboard will be live at `your-project.vercel.app`
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start)
 
-### Deploy to Render
+### Manual Deploy
 
-1. Push your code to GitHub
-2. Go to [render.com](https://render.com) and sign in
-3. Click "New" → "Web Service"
-4. Connect your repository
-5. Configure:
-   - **Build Command**: `npm install && npm run build`
-   - **Start Command**: `npm start`
-   - **Environment Variables**: Add `ALPHAVANTAGE_API_KEY` and `FRED_API_KEY`
-6. Click "Create Web Service"
+1. Push this repository to GitHub
 
-### Deploy to Netlify
+2. Go to [Netlify](https://app.netlify.com) and create a new site
 
-1. Push your code to GitHub
-2. Go to [netlify.com](https://netlify.com) and sign in
-3. Click "Add new site" → "Import an existing project"
-4. Connect your repository
-5. Configure:
-   - **Build Command**: `npm run build`
-   - **Publish directory**: `.next`
-6. Add environment variables in Site settings → Environment variables
-7. Deploy!
+3. Connect your GitHub repository
 
-## API Endpoints
+4. Configure build settings:
+   - Build command: `npm run build`
+   - Publish directory: `dist`
+   - Functions directory: `netlify/functions`
 
-### GET /api/market
+5. Add environment variables in Netlify:
+   - `FRED_API_KEY` - Your FRED API key
+   - `ALPHAVANTAGE_API_KEY` - Your Alpha Vantage API key
 
-Returns market data, scores, and analysis.
+6. Deploy!
 
-Query Parameters:
-- `refreshInterval` (number): Cache TTL in minutes (10/12/15/20/30)
-- `weightPreset` (string): Scoring weight preset (balanced/risk-off-sensitive/trend-following)
-- `shortMin`, `shortMax` (number): Short-term timeframe bounds
-- `mediumMin`, `mediumMax` (number): Medium-term timeframe bounds
-- `longMin`, `longMax` (number): Long-term timeframe bounds
+## Project Structure
 
-### GET /api/health
-
-Returns system health status and cache information.
-
-## Indicator Categories & Sources
-
-| Category | Indicators | Source |
-|----------|-----------|--------|
-| Core | SPY, QQQ, IWM, RSP | Stooq |
-| Volatility | VIX (optional, needs FRED_API_KEY) | FRED (VIXCLS) |
-| Credit | HYG, LQD, HYG/LQD ratio, TLT, SHY | Stooq |
-| USD/FX | UUP (Dollar ETF) | Stooq |
-| Rates | TNX (10Y), IRX (3M), FVX (5Y), DGS2 (2Y), 10Y-2Y spread | FRED |
-| Commodities | GLD, SLV, USO, DBA | Stooq |
-| Sectors | XLK, XLF, XLI, XLE, XLV, XLP, XLU, XLRE, XLY, XLC | Stooq |
-| Breadth | RSP/SPY, IWM/SPY ratios | Derived |
-
-**Note**: VIX and Treasury yields require `FRED_API_KEY`. Without it, the dashboard still works but those categories will be unavailable. Scoring automatically renormalizes.
-
-## Scoring System
-
-### Score Ranges
-
-| Range | Status |
-|-------|--------|
-| 0-25 | RISK-OFF |
-| 26-45 | DEFENSIVE |
-| 46-60 | NEUTRAL |
-| 61-80 | RISK-ON |
-| 81-100 | STRONGLY BULLISH |
-
-### Weight Presets
-
-- **Balanced**: Equal weight across all categories
-- **Risk-Off Sensitive**: Emphasizes volatility and credit conditions
-- **Trend-Following**: Emphasizes momentum and trend indicators
-
-## Configuration
-
-Settings are accessible via the gear icon in the top-right corner:
-
-- **Density**: Comfortable (spacious) or Compact (condensed)
-- **Refresh Interval**: 10/12/15/20/30 minutes
-- **Weight Preset**: Scoring methodology
-- **Timeframes**: Customize day ranges for each horizon
-- **View More Categories**: Toggle which indicator categories display
-
-## Data Accuracy
-
-- All price changes are computed from price and previousClose (never trust provider change values)
-- Derived ratios (VIX/VVIX, HYG/LQD) compute proper previous values for accurate change calculation
-- Timestamps are displayed in America/New_York timezone (ET)
-- Cache state shown: LIVE (fresh) / CACHED (valid) / STALE (expired)
-- Source attribution shown for each indicator (e.g., "SPY (AV)", "VIX (Stooq)")
-
-## Rate Limiting & Caching
-
-- **60-minute TTL cache**: Optimized for swing/long-term analysis
-- **Last-known-good fallback**: On fetch failure, uses previous successful data
-- **Single-flight deduplication**: Concurrent requests share same fetch
-- **Graceful degradation**: Optional indicators (VVIX, MOVE, etc.) don't break scoring if unavailable
-- **Stale data flag**: API response indicates when data is from cache after a failed refresh
-
-## How to Verify the Dashboard is Working
-
-After deployment, verify the dashboard is functional by checking `/api/market`:
-
-```bash
-curl https://your-site.netlify.app/api/market | jq '.'
+```
+├── index.html              # Main HTML entry
+├── netlify.toml            # Netlify configuration
+├── netlify/
+│   └── functions/
+│       └── market.ts       # API aggregator function
+├── src/
+│   ├── App.tsx             # Main React component
+│   ├── main.tsx            # React entry point
+│   ├── index.css           # Global styles (Tailwind)
+│   ├── components/         # UI components
+│   │   ├── FrostedCard.tsx
+│   │   ├── ScoreGauge.tsx
+│   │   ├── StatusCard.tsx
+│   │   ├── SectorChart.tsx
+│   │   ├── IndicatorPill.tsx
+│   │   └── ViewMorePanel.tsx
+│   ├── hooks/
+│   │   └── useMarketData.ts  # Data fetching hook
+│   ├── lib/                # Utility functions
+│   │   ├── colors.ts
+│   │   ├── format.ts
+│   │   └── time.ts
+│   └── types/
+│       └── index.ts        # TypeScript types
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+└── tailwind.config.js
 ```
 
-### Acceptance Criteria
+## Scoring Algorithm
 
-1. **Core ETFs have data** (Stooq):
-   ```
-   capabilities.SPY.ok = true
-   capabilities.QQQ.ok = true
-   capabilities.GLD.ok = true
-   capabilities.UUP.ok = true
-   ```
+### Category Scores
 
-2. **Sectors have non-uniform scores** (not all 50):
-   ```
-   sectors[*].score should vary (e.g., 45, 52, 68, etc.)
-   ```
+The dashboard calculates scores for these categories:
 
-3. **No N/A for core indicators**:
-   - SPY, QQQ, IWM, GLD, HYG, LQD, TLT should all have `price` values
+| Category | Weight | Data Sources |
+|----------|--------|--------------|
+| Trend | 25% | SPY, QQQ, IWM momentum |
+| Volatility/Tail Risk | 20% | VIX level |
+| Credit/Liquidity | 15% | HY OAS, HYG, LQD, TLT |
+| Rates | 10% | 10Y yield, yield curve |
+| USD/FX | 10% | UUP (dollar) momentum |
+| Breadth | 20% | RSP/SPY, IWM/SPY ratios |
 
-4. **VIX is optional**:
-   - If `FRED_API_KEY` is set: `capabilities.VIX.ok = true`
-   - If not set: `capabilities.VIX.ok = false` (this is OK - scoring works without it)
+### Time Horizon Scores
 
-### Example healthy response structure:
-```json
-{
-  "capabilities": {
-    "SPY": { "ok": true, "sourceUsed": "STOOQ" },
-    "QQQ": { "ok": true, "sourceUsed": "STOOQ" },
-    "GLD": { "ok": true, "sourceUsed": "STOOQ" },
-    "UUP": { "ok": true, "sourceUsed": "STOOQ" },
-    "VIX": { "ok": true, "sourceUsed": "FRED" }
-  },
-  "indicators": {
-    "SPY": { "price": 590.5, "changePct": 0.25 },
-    "GLD": { "price": 242.3, "changePct": -0.1 }
-  },
-  "scores": { "short": 55, "medium": 52, "long": 58 },
-  "sectors": [
-    { "ticker": "XLK", "score": 62 },
-    { "ticker": "XLF", "score": 48 }
-  ]
-}
-```
+- **Short-term**: Weighted toward volatility and daily momentum
+- **Medium-term**: Balanced blend of all categories
+- **Long-term**: Weighted toward trend and credit conditions
 
-## Disclaimer
+### Regime Classification
 
-**Not financial advice.** This dashboard is for informational purposes only. Data is provided as-is from third-party sources. Always do your own research before making investment decisions.
+| Regime | Condition |
+|--------|-----------|
+| RISK-ON | Long ≥70 AND Short ≥60 |
+| RISK-OFF | Long ≤40 OR credit stressed |
+| CHOPPY | Short <40 AND Long >50 |
+| NEUTRAL | All other cases |
+
+## Sector Attraction
+
+Each sector score (0-100) is based on:
+- Daily price change vs previous close
+- Formula: `score = clamp(50 + changePct * 10, 0, 100)`
+- Example: +1% change = score of 60
+
+## Caching Strategy
+
+### Server-side (Netlify Function)
+- In-memory cache: 1 hour TTL
+- HTTP cache headers: `Cache-Control: public, max-age=3600`
+- Graceful fallback to stale cache on API errors
+
+### Client-side (Browser)
+- LocalStorage cache: 2 hour max age
+- Instant load from cache, then refresh in background
+- Fallback to cache when offline
+
+## Rate Limit Protection
+
+The dashboard is designed to minimize API calls:
+
+1. **FRED First**: Uses FRED for all macro data (high rate limits)
+2. **Batch Requests**: Alpha Vantage calls are staggered
+3. **Caching**: 1-hour cache prevents repeated calls
+4. **Priority Order**: Essential tickers fetched first
+
+## Tech Stack
+
+- **Frontend**: React 18, TypeScript, Vite
+- **Styling**: Tailwind CSS
+- **Backend**: Netlify Functions
+- **Data**: FRED API, Alpha Vantage API
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `FRED_API_KEY` | Yes | FRED API key for economic data |
+| `ALPHAVANTAGE_API_KEY` | Yes | Alpha Vantage API key for ETF prices |
 
 ## License
 
 MIT
+
+## Contributing
+
+Contributions welcome! Please open an issue or PR.
+
+## Disclaimer
+
+This dashboard is for informational purposes only. Not financial advice. Market data may be delayed. Always do your own research before making investment decisions.
