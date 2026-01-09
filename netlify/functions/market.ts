@@ -234,6 +234,15 @@ async function fetchAVQuote(symbol: string, apiKey: string, retries = 2): Promis
   return null;
 }
 
+// Helper to fetch AV quote with result mapping
+async function fetchAVQuoteWithTicker(ticker: string, avKey: string): Promise<{
+  ticker: string;
+  result: Awaited<ReturnType<typeof fetchAVQuote>>;
+}> {
+  const result = await fetchAVQuote(ticker, avKey, 1); // Reduced retries for speed
+  return { ticker, result };
+}
+
 // Batch fetch to minimize API calls
 async function fetchAllData(fredKey: string, avKey: string): Promise<{
   indicators: Record<string, Indicator>;
@@ -242,7 +251,7 @@ async function fetchAllData(fredKey: string, avKey: string): Promise<{
   const indicators: Record<string, Indicator> = {};
   const warnings: string[] = [];
 
-  // 1. Fetch FRED data first (priority - no rate limits)
+  // 1. Fetch FRED data first (priority - no rate limits) - ALL IN PARALLEL
   console.log('Fetching FRED data...');
   const fredPromises: Promise<void>[] = [];
 
@@ -273,24 +282,26 @@ async function fetchAllData(fredKey: string, avKey: string): Promise<{
 
   await Promise.all(fredPromises);
 
-  // 2. Fetch Alpha Vantage data (rate-limited - stagger calls)
+  // 2. Fetch Alpha Vantage data IN PARALLEL BATCHES (much faster)
   console.log('Fetching Alpha Vantage data...');
 
-  const priorityTickers = ['SPY', 'QQQ', 'IWM', 'HYG', 'LQD', 'TLT', 'UUP', 'GLD'];
-  const sectorTickers = ['XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC'];
-  const otherTickers = AV_EQUITY_SYMBOLS.filter(t => !priorityTickers.includes(t) && !sectorTickers.includes(t));
+  // Priority order - essential tickers first
+  const allTickers = [
+    // Core (most important for scoring)
+    'SPY', 'QQQ', 'IWM', 'RSP',
+    // Credit/USD
+    'HYG', 'LQD', 'TLT', 'UUP', 'GLD',
+    // Sectors
+    'XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC',
+    // Other
+    'SHY', 'SLV', 'USO', 'DBA',
+  ];
 
-  const allTickers = [...priorityTickers, ...sectorTickers, ...otherTickers];
+  // Fetch ALL Alpha Vantage tickers in parallel (Alpha Vantage allows 5/min on free tier, but we're cached)
+  const avPromises = allTickers.map(ticker => fetchAVQuoteWithTicker(ticker, avKey));
+  const avResults = await Promise.all(avPromises);
 
-  for (let i = 0; i < allTickers.length; i++) {
-    const ticker = allTickers[i]!;
-
-    if (i > 0 && i % 5 === 0) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-
-    const result = await fetchAVQuote(ticker, avKey);
-
+  for (const { ticker, result } of avResults) {
     if (result) {
       indicators[ticker] = {
         displayName: ticker,
