@@ -10,11 +10,11 @@ interface ScoreGaugeProps {
 export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
   const colors = getScoreColor(score);
 
-  // Taller arc with more internal space
-  const width = 130;
-  const height = 90;
+  // MUCH taller arc with generous internal space
+  const width = 140;
+  const height = 100;
   const strokeWidth = 10;
-  const radius = 52;
+  const radius = 55;
   const circumference = 2 * Math.PI * radius;
 
   // Arc calculation: 180 degrees (half circle)
@@ -23,19 +23,19 @@ export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
   const filledLength = arcLength * fillPercentage;
 
   const centerX = width / 2;
-  const centerY = height - 8;
+  const centerY = height - 12;
 
   return (
-    <div className="flex flex-col items-center py-2">
+    <div className="flex flex-col items-center py-3">
       {/* Label ABOVE the arc - more prominent */}
-      <div className="flex items-center gap-1.5 mb-3">
+      <div className="flex items-center gap-1.5 mb-4">
         <span className="text-sm font-bold uppercase tracking-wider text-white">
           {label}
         </span>
         {tooltip && <InfoTooltip content={tooltip} />}
       </div>
 
-      {/* Arc gauge - half circle opening upward */}
+      {/* Arc gauge - half circle opening upward - LIFTED */}
       <div className="relative" style={{ width, height }}>
         <svg width={width} height={height} className="overflow-visible">
           {/* Glow filter */}
@@ -71,12 +71,12 @@ export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
           />
         </svg>
 
-        {/* Center text - positioned inside arc with more space */}
+        {/* Center text - positioned inside arc with LOTS of space */}
         <div
           className="absolute flex flex-col items-center"
           style={{
             left: '50%',
-            bottom: '10px',
+            bottom: '18px',
             transform: 'translateX(-50%)'
           }}
         >

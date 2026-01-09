@@ -36,16 +36,16 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
       </div>
 
       {/* Bar chart container - TALLER */}
-      <div className="flex-1 flex items-end gap-2 min-h-[180px] pb-3">
+      <div className="flex-1 flex items-end gap-2 min-h-[200px] pb-3">
         {displaySectors.map((sector) => {
           const score = typeof sector.score === 'number' && !isNaN(sector.score) ? sector.score : 50;
 
-          // Calculate bar height with DRAMATIC variance
-          // Use exponential scaling: (score/100)^1.8 to exaggerate differences
-          // Score 0 = 8%, Score 46 = 20%, Score 75 = 50%, Score 100 = 100%
+          // Calculate bar height with EXTREME variance - very obvious at a glance
+          // Use cubic scaling: (score/100)^2.5 for massive differences
+          // Score 20 = 2%, Score 40 = 10%, Score 50 = 18%, Score 60 = 28%, Score 80 = 57%, Score 100 = 100%
           const normalizedScore = score / 100;
-          const exponentialScore = Math.pow(normalizedScore, 1.8);
-          const barHeightPercent = 8 + exponentialScore * 92;
+          const exponentialScore = Math.pow(normalizedScore, 2.5);
+          const barHeightPercent = 5 + exponentialScore * 95;
           const barColor = getSectorBarColor(score);
 
           return (

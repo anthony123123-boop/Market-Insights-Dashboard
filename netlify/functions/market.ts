@@ -568,6 +568,33 @@ function generateStatus(
     reasons.push(`High yield bonds ${desc}`);
   }
 
+  // Gold - always show as safe haven indicator
+  const gld = indicators['GLD'];
+  if (gld?.changePct !== undefined) {
+    const desc = gld.changePct > 0.3 ? 'rising (safe haven bid)' : gld.changePct < -0.3 ? 'falling (risk appetite)' : 'stable';
+    reasons.push(`Gold ${desc}`);
+  }
+
+  // Tech leadership (QQQ vs SPY)
+  if (qqq?.changePct !== undefined && spy?.changePct !== undefined) {
+    const techLead = qqq.changePct - spy.changePct;
+    if (Math.abs(techLead) > 0.2) {
+      const desc = techLead > 0 ? 'leading (growth favored)' : 'lagging (value rotation)';
+      reasons.push(`Tech sector ${desc}`);
+    }
+  }
+
+  // HY OAS Spread - credit stress indicator
+  const hyOas = indicators['BAMLH0A0HYM2'];
+  if (hyOas?.price !== undefined) {
+    const desc = hyOas.price < 350 ? 'tight (risk-on)' : hyOas.price > 500 ? 'wide (stress signal)' : 'normal';
+    reasons.push(`Credit spreads ${desc} at ${hyOas.price.toFixed(0)}bps`);
+  }
+
+  // Overall score summary
+  const avgScore = Math.round((scores.short + scores.medium + scores.long) / 3);
+  reasons.push(`Composite score: ${avgScore}/100`);
+
   return { label, plan: plans[label], reasons };
 }
 
