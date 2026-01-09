@@ -1,5 +1,5 @@
 // Data source types
-export type DataSource = 'FRED' | 'AV' | 'PROXY';
+export type DataSource = 'FRED' | 'AV' | 'FINNHUB' | 'PROXY';
 export type CacheState = 'LIVE' | 'CACHED' | 'STALE';
 export type SessionType = 'REGULAR' | 'PRE' | 'POST' | 'CLOSE' | 'NA';
 
