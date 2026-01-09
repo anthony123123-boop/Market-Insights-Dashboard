@@ -60,20 +60,24 @@ export interface MarketDataResponse {
   categoryScores: Record<string, { score: number; available: boolean; weight: number }>;
 }
 
-// Indicator categories for UI grouping
-export const INDICATOR_CATEGORIES = {
-  CORE: ['SPY', 'QQQ', 'IWM', 'RSP'],
-  VOL_TAIL: ['VIX', 'VVIX'],
-  CREDIT_LIQUIDITY: ['HYG', 'LQD', 'HYG_LQD_RATIO', 'TLT', 'SHY'],
-  USD_FX: ['DXY', 'UUP', 'EURUSD'],
-  RATES_YIELD: ['TNX', 'IRX', 'FVX', 'YIELD_SPREAD'],
-  COMMODITIES: ['GLD', 'SLV', 'USO', 'DBA'],
-  SECTORS: ['XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC'],
-  BREADTH: ['RSP_SPY_RATIO', 'IWM_SPY_RATIO'],
-} as const;
+// Main indicators for the KEY INDICATORS section (shown prominently)
+export const MAIN_INDICATORS = [
+  'SPY', 'QQQ', 'IWM', 'DIA',  // Core indices
+  'VIX',                        // Volatility
+  'HYG', 'TLT',                 // Credit/Bonds
+  'GLD', 'UUP',                 // Commodities/FX
+] as const;
 
-// Main indicators for the top row (5 large pills)
-export const MAIN_INDICATORS = ['SPY', 'QQQ', 'UUP', 'GLD', 'VIX'] as const;
+// Indicator categories for VIEW MORE panel
+export const INDICATOR_CATEGORIES = {
+  CORE: ['SPY', 'QQQ', 'IWM', 'DIA', 'RSP'],
+  VOL_TAIL: ['VIX', 'VXX'],
+  CREDIT_LIQUIDITY: ['HYG', 'LQD', 'HYG_LQD', 'TLT', 'SHY'],
+  USD_FX: ['UUP'],
+  RATES_YIELD: ['TNX', 'DGS2', 'DGS5', 'DGS1', 'YIELD_SPREAD', 'BAMLH0A0HYM2'],
+  COMMODITIES: ['GLD', 'SLV', 'USO'],
+  BREADTH: ['RSP_SPY'],
+} as const;
 
 // Sector ETFs
 export const SECTOR_ETFS = ['XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC'] as const;
@@ -90,4 +94,31 @@ export const SECTOR_NAMES: Record<string, string> = {
   XLRE: 'Real Estate',
   XLY: 'Cons. Disc.',
   XLC: 'Communication',
+};
+
+// Friendly names for indicators
+export const INDICATOR_NAMES: Record<string, string> = {
+  SPY: 'S&P 500',
+  QQQ: 'Nasdaq 100',
+  IWM: 'Russell 2000',
+  DIA: 'Dow Jones',
+  RSP: 'Equal Weight S&P',
+  VIX: 'VIX',
+  VXX: 'VIX Short-Term',
+  HYG: 'High Yield',
+  LQD: 'Inv. Grade Corp',
+  HYG_LQD: 'HY/IG Ratio',
+  TLT: '20Y+ Treasury',
+  SHY: '1-3Y Treasury',
+  UUP: 'US Dollar',
+  TNX: '10Y Yield',
+  DGS2: '2Y Yield',
+  DGS5: '5Y Yield',
+  DGS1: '1Y Yield',
+  YIELD_SPREAD: '10Y-2Y Spread',
+  BAMLH0A0HYM2: 'HY OAS Spread',
+  GLD: 'Gold',
+  SLV: 'Silver',
+  USO: 'Oil',
+  RSP_SPY: 'Breadth Ratio',
 };

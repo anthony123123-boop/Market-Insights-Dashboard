@@ -10,7 +10,7 @@ import {
 } from '@/components';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { useMarketData } from '@/hooks/useMarketData';
-import { MAIN_INDICATORS } from '@/types';
+import { MAIN_INDICATORS, INDICATOR_NAMES } from '@/types';
 import type { Indicator } from '@/types';
 
 // Tooltip content for score gauges
@@ -41,7 +41,7 @@ Higher = more favorable for long-term holds`,
 
 const KEY_INDICATORS_TOOLTIP = `Key market indicators showing:
 • Price and daily change
-• Data from FRED (macro) and Alpha Vantage (ETFs)
+• Data from FRED, Alpha Vantage, and Finnhub
 • Updates hourly with server-side caching`;
 
 function App() {
@@ -59,19 +59,33 @@ function App() {
     return <ErrorState error="No data available" onRetry={refetch} />;
   }
 
-  // Get main indicators - filter to only show ones with data
-  const mainIndicators: Indicator[] = MAIN_INDICATORS
-    .map((ticker) => data.indicators[ticker])
-    .filter((ind): ind is Indicator => ind !== undefined && ind.price !== undefined);
+  // Get main indicators with friendly names
+  const getIndicatorWithName = (ticker: string): Indicator | null => {
+    const ind = data.indicators[ticker];
+    if (!ind || ind.price === undefined) return null;
+    return {
+      ...ind,
+      displayName: INDICATOR_NAMES[ticker] || ind.displayName || ticker,
+    };
+  };
 
-  // Add more indicators if main ones are missing
-  const additionalTickers = ['SPY', 'QQQ', 'IWM', 'TLT', 'HYG', 'GLD', 'VIX', 'UUP'];
-  const displayIndicators = mainIndicators.length >= 5
-    ? mainIndicators
-    : additionalTickers
-        .map(t => data.indicators[t])
-        .filter((ind): ind is Indicator => ind !== undefined && ind.price !== undefined)
-        .slice(0, 5);
+  // Build display indicators from MAIN_INDICATORS
+  const displayIndicators: Indicator[] = MAIN_INDICATORS
+    .map(ticker => getIndicatorWithName(ticker))
+    .filter((ind): ind is Indicator => ind !== null);
+
+  // If we don't have enough, try to get more from available data
+  if (displayIndicators.length < 5) {
+    const additionalTickers = Object.keys(data.indicators)
+      .filter(t => !MAIN_INDICATORS.includes(t as typeof MAIN_INDICATORS[number]))
+      .filter(t => !t.includes('_')); // Skip ratio indicators for main display
+
+    for (const ticker of additionalTickers) {
+      if (displayIndicators.length >= 9) break;
+      const ind = getIndicatorWithName(ticker);
+      if (ind) displayIndicators.push(ind);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0e14] text-white">
@@ -154,12 +168,12 @@ function App() {
             </h2>
             <InfoTooltip content={KEY_INDICATORS_TOOLTIP} />
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-            {displayIndicators.map((indicator) => (
+          <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2">
+            {displayIndicators.slice(0, 9).map((indicator) => (
               <IndicatorPill
                 key={indicator.ticker}
                 indicator={indicator}
-                size="md"
+                size="sm"
                 showSource
               />
             ))}
@@ -171,7 +185,7 @@ function App() {
 
         {/* Footer */}
         <footer className="mt-6 pt-4 border-t border-white/5 text-center text-[10px] text-gray-600">
-          <p>Data: FRED (Federal Reserve) & Alpha Vantage • Market data delayed • Not financial advice</p>
+          <p>Data: FRED • Alpha Vantage • Finnhub • Market data delayed • Not financial advice</p>
         </footer>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FrostedCard } from './FrostedCard';
 import { CompactIndicatorPill } from './IndicatorPill';
-import { INDICATOR_CATEGORIES } from '@/types';
+import { INDICATOR_CATEGORIES, INDICATOR_NAMES } from '@/types';
 import type { Indicator } from '@/types';
 
 interface ViewMorePanelProps {
@@ -30,11 +30,19 @@ const CATEGORY_ORDER = [
 export function ViewMorePanel({ indicators }: ViewMorePanelProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Get indicators for each category
+  // Get indicators for each category with friendly display names
   const getCategoryIndicators = (categoryKey: string): Indicator[] => {
     const tickers = INDICATOR_CATEGORIES[categoryKey as keyof typeof INDICATOR_CATEGORIES] ?? [];
     return tickers
-      .map((ticker) => indicators[ticker])
+      .map((ticker) => {
+        const ind = indicators[ticker];
+        if (!ind) return undefined;
+        // Apply friendly display name from INDICATOR_NAMES
+        return {
+          ...ind,
+          displayName: INDICATOR_NAMES[ticker] || ind.displayName || ticker,
+        };
+      })
       .filter((ind): ind is Indicator => ind !== undefined);
   };
 
