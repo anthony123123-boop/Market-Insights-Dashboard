@@ -32,22 +32,22 @@ export function StatusCard({ status }: StatusCardProps) {
         <p className="text-sm text-white leading-relaxed font-medium">{status.plan}</p>
       </div>
 
-      {/* Key Drivers - scrollable if needed */}
-      <div className="flex-1 py-3 overflow-y-auto">
+      {/* Key Drivers - scrollable, compact spacing */}
+      <div className="flex-1 py-2 overflow-y-auto">
         <div className="text-[10px] text-cyan-400/80 uppercase tracking-widest mb-2 font-medium">
           Key Drivers
         </div>
-        <ul className="space-y-2.5">
+        <ul className="space-y-1.5">
           {status.reasons.map((reason, index) => (
-            <li key={index} className="flex items-start text-xs">
+            <li key={index} className="flex items-start text-[11px]">
               <span
-                className="w-2 h-2 rounded-full mt-1 mr-2 flex-shrink-0"
+                className="w-1.5 h-1.5 rounded-full mt-1.5 mr-2 flex-shrink-0"
                 style={{
                   backgroundColor: colors.hex,
-                  boxShadow: `0 0 6px ${colors.hex}80`
+                  boxShadow: `0 0 4px ${colors.hex}80`
                 }}
               />
-              <span className="text-gray-100 leading-relaxed">{reason}</span>
+              <span className="text-gray-100 leading-snug">{reason}</span>
             </li>
           ))}
         </ul>

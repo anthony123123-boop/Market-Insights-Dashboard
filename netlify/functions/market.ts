@@ -551,44 +551,48 @@ function generateStatus(
     reasons.push(`Long-term Treasuries ${desc}`);
   }
 
-  // Small caps relative strength
+  // Small caps relative strength - ALWAYS show
   const iwm = indicators['IWM'];
   if (iwm?.changePct !== undefined && spy?.changePct !== undefined) {
     const relStrength = iwm.changePct - spy.changePct;
-    if (Math.abs(relStrength) > 0.3) {
-      const desc = relStrength > 0 ? 'outperforming (risk-on)' : 'underperforming (risk-off)';
-      reasons.push(`Small caps ${desc} large caps`);
-    }
+    const desc = relStrength > 0.15 ? 'outperforming (risk-on)' : relStrength < -0.15 ? 'underperforming (risk-off)' : 'tracking';
+    reasons.push(`Small caps ${desc} large caps`);
   }
 
-  // High yield credit
+  // High yield credit - ALWAYS show
   const hyg = indicators['HYG'];
   if (hyg?.changePct !== undefined) {
-    const desc = hyg.changePct > 0.2 ? 'strong (risk appetite)' : hyg.changePct < -0.2 ? 'weak (credit stress)' : 'steady';
+    const desc = hyg.changePct > 0.1 ? 'strong (risk appetite)' : hyg.changePct < -0.1 ? 'weak (credit stress)' : 'steady';
     reasons.push(`High yield bonds ${desc}`);
   }
 
-  // Gold - always show as safe haven indicator
+  // Gold - ALWAYS show
   const gld = indicators['GLD'];
   if (gld?.changePct !== undefined) {
-    const desc = gld.changePct > 0.3 ? 'rising (safe haven bid)' : gld.changePct < -0.3 ? 'falling (risk appetite)' : 'stable';
+    const desc = gld.changePct > 0.2 ? 'rising (safe haven bid)' : gld.changePct < -0.2 ? 'falling (risk appetite)' : 'stable';
     reasons.push(`Gold ${desc}`);
   }
 
-  // Tech leadership (QQQ vs SPY)
+  // Tech leadership (QQQ vs SPY) - ALWAYS show
   if (qqq?.changePct !== undefined && spy?.changePct !== undefined) {
     const techLead = qqq.changePct - spy.changePct;
-    if (Math.abs(techLead) > 0.2) {
-      const desc = techLead > 0 ? 'leading (growth favored)' : 'lagging (value rotation)';
-      reasons.push(`Tech sector ${desc}`);
-    }
+    const desc = techLead > 0.1 ? 'leading (growth favored)' : techLead < -0.1 ? 'lagging (value rotation)' : 'in line';
+    reasons.push(`Tech sector ${desc}`);
   }
 
-  // HY OAS Spread - credit stress indicator
+  // HY OAS Spread - ALWAYS show
   const hyOas = indicators['BAMLH0A0HYM2'];
   if (hyOas?.price !== undefined) {
     const desc = hyOas.price < 350 ? 'tight (risk-on)' : hyOas.price > 500 ? 'wide (stress signal)' : 'normal';
     reasons.push(`Credit spreads ${desc} at ${hyOas.price.toFixed(0)}bps`);
+  }
+
+  // Sector leadership summary
+  const sectorScores = calculateSectorScores(indicators);
+  const topSector = sectorScores.reduce((a, b) => a.score > b.score ? a : b);
+  const bottomSector = sectorScores.reduce((a, b) => a.score < b.score ? a : b);
+  if (topSector.score !== bottomSector.score) {
+    reasons.push(`Sector leader: ${topSector.name} (${topSector.score}), laggard: ${bottomSector.name} (${bottomSector.score})`);
   }
 
   // Overall score summary
