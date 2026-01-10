@@ -113,8 +113,9 @@ function App() {
           </div>
           {data.warnings.length > 0 && (
             <div className="mt-1.5 text-center">
-              <span className="text-[10px] text-amber-500/60">
-                {data.warnings.length} data source(s) unavailable
+              <span className="text-[10px] text-amber-500/60" title={data.warnings.join(', ')}>
+                {data.warnings.length} data source(s) unavailable: {data.warnings.slice(0, 4).join(', ')}
+                {data.warnings.length > 4 && '...'}
               </span>
             </div>
           )}

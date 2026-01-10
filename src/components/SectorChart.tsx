@@ -22,7 +22,7 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
     : sectors;
 
   // Max bar height in pixels
-  const MAX_BAR_HEIGHT = 160;
+  const MAX_BAR_HEIGHT = 140;
 
   return (
     <FrostedCard className="h-full flex flex-col">
@@ -42,12 +42,25 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
         {displaySectors.map((sector) => {
           const score = typeof sector.score === 'number' && !isNaN(sector.score) ? sector.score : 50;
 
-          // EXTREME height variance using cubic scaling
-          // Score 30 = tiny, Score 50 = small, Score 70 = medium, Score 90 = tall
-          const normalizedScore = score / 100;
-          const exponentialScore = Math.pow(normalizedScore, 3);
-          // Min 10px, max MAX_BAR_HEIGHT px
-          const barHeightPx = Math.max(10, Math.round(exponentialScore * MAX_BAR_HEIGHT));
+          // EXTREME height variance - piecewise function for dramatic differences
+          // 0-40: tiny bars (5-15% of max)
+          // 40-55: small bars (15-35% of max)
+          // 55-70: medium-large bars (35-70% of max)
+          // 70-85: large bars (70-90% of max)
+          // 85-100: very large bars (90-100% of max)
+          let heightPercent: number;
+          if (score < 40) {
+            heightPercent = 5 + (score / 40) * 10; // 5-15%
+          } else if (score < 55) {
+            heightPercent = 15 + ((score - 40) / 15) * 20; // 15-35%
+          } else if (score < 70) {
+            heightPercent = 35 + ((score - 55) / 15) * 35; // 35-70%
+          } else if (score < 85) {
+            heightPercent = 70 + ((score - 70) / 15) * 20; // 70-90%
+          } else {
+            heightPercent = 90 + ((score - 85) / 15) * 10; // 90-100%
+          }
+          const barHeightPx = Math.max(8, Math.round((heightPercent / 100) * MAX_BAR_HEIGHT));
           const barColor = getSectorBarColor(score);
 
           return (

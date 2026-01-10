@@ -10,11 +10,11 @@ interface ScoreGaugeProps {
 export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
   const colors = getScoreColor(score);
 
-  // MUCH taller arc with generous internal space
-  const width = 140;
-  const height = 100;
+  // MUCH taller arc with VERY generous internal space
+  const width = 150;
+  const height = 115;
   const strokeWidth = 10;
-  const radius = 55;
+  const radius = 58;
   const circumference = 2 * Math.PI * radius;
 
   // Arc calculation: 180 degrees (half circle)
@@ -23,19 +23,19 @@ export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
   const filledLength = arcLength * fillPercentage;
 
   const centerX = width / 2;
-  const centerY = height - 12;
+  const centerY = height - 18;
 
   return (
-    <div className="flex flex-col items-center py-3">
+    <div className="flex flex-col items-center py-2">
       {/* Label ABOVE the arc - more prominent */}
-      <div className="flex items-center gap-1.5 mb-4">
+      <div className="flex items-center gap-1.5 mb-3">
         <span className="text-sm font-bold uppercase tracking-wider text-white">
           {label}
         </span>
         {tooltip && <InfoTooltip content={tooltip} />}
       </div>
 
-      {/* Arc gauge - half circle opening upward - LIFTED */}
+      {/* Arc gauge - half circle - RAISED HIGH */}
       <div className="relative" style={{ width, height }}>
         <svg width={width} height={height} className="overflow-visible">
           {/* Glow filter */}
@@ -71,12 +71,12 @@ export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
           />
         </svg>
 
-        {/* Center text - positioned inside arc with LOTS of space */}
+        {/* Center text - positioned inside arc with MASSIVE space above */}
         <div
           className="absolute flex flex-col items-center"
           style={{
             left: '50%',
-            bottom: '18px',
+            bottom: '25px',
             transform: 'translateX(-50%)'
           }}
         >
