@@ -17,16 +17,16 @@ import type { Indicator } from '@/types';
 const SCORE_TOOLTIPS = {
   short: `SHORT-TERM OUTLOOK (1-5 days)
 Score based on:
-• Daily price momentum (SPY, QQQ, IWM)
+• Daily price momentum (S&P 500, Nasdaq, Russell 2000)
 • VIX volatility levels
-• Intraday breadth signals
+• Small/large cap breadth proxy
 Higher = more favorable for short-term swing trades`,
 
   medium: `MEDIUM-TERM OUTLOOK (1-4 weeks)
 Score based on:
 • Trend strength across indices
-• Credit market conditions (HYG, LQD)
-• Interest rate environment
+• Credit spreads and TED spread
+• Yield curve and 10Y rate moves
 • USD strength/weakness
 Higher = more favorable for swing positions`,
 
@@ -35,13 +35,13 @@ Score based on:
 • Macro trend direction
 • Credit spreads and liquidity
 • Yield curve shape
-• Broad market breadth
+• Broad market breadth proxy
 Higher = more favorable for long-term holds`,
 };
 
 const KEY_INDICATORS_TOOLTIP = `Key market indicators showing:
 • Price and daily change
-• Data from FRED, Alpha Vantage, and Finnhub
+• Data from FRED and Alpha Vantage
 • Updates hourly with server-side caching`;
 
 function App() {
@@ -186,7 +186,7 @@ function App() {
 
         {/* Footer */}
         <footer className="mt-6 pt-4 border-t border-white/5 text-center text-[10px] text-gray-600">
-          <p>Data: FRED • Alpha Vantage • Finnhub • Market data delayed • Not financial advice</p>
+          <p>Data: FRED • Alpha Vantage • Market data delayed • Not financial advice</p>
         </footer>
       </div>
     </div>

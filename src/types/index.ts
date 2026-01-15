@@ -1,5 +1,5 @@
 // Data source types
-export type DataSource = 'FRED' | 'AV' | 'FINNHUB' | 'PROXY';
+export type DataSource = 'FRED' | 'AV' | 'PROXY';
 export type CacheState = 'LIVE' | 'CACHED' | 'STALE';
 export type SessionType = 'REGULAR' | 'PRE' | 'POST' | 'CLOSE' | 'NA';
 
@@ -62,21 +62,21 @@ export interface MarketDataResponse {
 
 // Main indicators for the KEY INDICATORS section (shown prominently)
 export const MAIN_INDICATORS = [
-  'SPY', 'QQQ', 'IWM', 'DIA',  // Core indices
-  'VIX',                        // Volatility
-  'HYG', 'TLT',                 // Credit/Bonds
-  'GLD', 'UUP',                 // Commodities/FX
+  'SP500', 'NASDAQCOM', 'DJIA', 'RU2000PR', // Core indices
+  'VIX',                                   // Volatility
+  'DGS10', 'YIELD_SPREAD',                 // Rates
+  'DTWEXBGS', 'GOLD',                      // USD / Commodities
 ] as const;
 
 // Indicator categories for VIEW MORE panel
 export const INDICATOR_CATEGORIES = {
-  CORE: ['SPY', 'QQQ', 'IWM', 'DIA', 'RSP'],
-  VOL_TAIL: ['VIX', 'VXX', 'TEDRATE'],
-  CREDIT_LIQUIDITY: ['HYG', 'LQD', 'HYG_LQD', 'TLT', 'SHY', 'BAMLH0A0HYM2'],
-  USD_FX: ['UUP'],
-  RATES_YIELD: ['TNX', 'DGS2', 'DGS5', 'DGS1', 'YIELD_SPREAD', 'T10YIE'],
-  COMMODITIES: ['GLD', 'SLV', 'USO'],
-  BREADTH: ['RSP_SPY'],
+  CORE: ['SP500', 'NASDAQCOM', 'DJIA', 'RU2000PR'],
+  VOL_TAIL: ['VIX', 'TEDRATE'],
+  CREDIT_LIQUIDITY: ['BAMLH0A0HYM2', 'TEDRATE'],
+  USD_FX: ['DTWEXBGS'],
+  RATES_YIELD: ['DGS10', 'DGS2', 'DGS5', 'DGS1', 'YIELD_SPREAD', 'T10YIE'],
+  COMMODITIES: ['GOLD', 'OIL'],
+  BREADTH: ['SMALL_LARGE'],
 } as const;
 
 // Sector ETFs
@@ -98,29 +98,21 @@ export const SECTOR_NAMES: Record<string, string> = {
 
 // Friendly names for indicators
 export const INDICATOR_NAMES: Record<string, string> = {
-  SPY: 'S&P 500',
-  QQQ: 'Nasdaq 100',
-  IWM: 'Russell 2000',
-  DIA: 'Dow Jones',
-  RSP: 'Equal Weight S&P',
+  SP500: 'S&P 500',
+  NASDAQCOM: 'Nasdaq Composite',
+  DJIA: 'Dow Jones',
+  RU2000PR: 'Russell 2000',
   VIX: 'VIX',
-  VXX: 'VIX Short-Term',
   TEDRATE: 'TED Spread',
-  HYG: 'High Yield',
-  LQD: 'Inv. Grade Corp',
-  HYG_LQD: 'HY/IG Ratio',
-  TLT: '20Y+ Treasury',
-  SHY: '1-3Y Treasury',
-  UUP: 'US Dollar',
-  TNX: '10Y Yield',
+  DTWEXBGS: 'US Dollar Index',
+  DGS10: '10Y Yield',
   DGS2: '2Y Yield',
   DGS5: '5Y Yield',
   DGS1: '1Y Yield',
   YIELD_SPREAD: '10Y-2Y Spread',
   T10YIE: 'Inflation Expect.',
   BAMLH0A0HYM2: 'HY OAS Spread',
-  GLD: 'Gold',
-  SLV: 'Silver',
-  USO: 'Oil',
-  RSP_SPY: 'Breadth Ratio',
+  GOLD: 'Gold',
+  OIL: 'Oil',
+  SMALL_LARGE: 'Small/Large Ratio',
 };

@@ -8,7 +8,7 @@ interface Indicator {
   changePct?: number;
   session: string;
   asOfET?: string;
-  source: 'FRED' | 'AV' | 'FINNHUB' | 'PROXY';
+  source: 'FRED' | 'AV' | 'PROXY';
 }
 
 interface Sector {
@@ -46,26 +46,9 @@ interface FREDResponse {
   observations?: Array<{ date: string; value: string }>;
 }
 
-interface AVQuoteResponse {
-  'Global Quote'?: {
-    '05. price': string;
-    '08. previous close': string;
-    '09. change': string;
-    '10. change percent': string;
-  };
-  Note?: string;
-  Information?: string;
-}
-
-interface FinnhubQuoteResponse {
-  c: number;  // Current price
-  pc: number; // Previous close
-  d: number;  // Change
-  dp: number; // Percent change
-  h: number;  // High
-  l: number;  // Low
-  o: number;  // Open
-  t: number;  // Timestamp
+interface AVSectorResponse {
+  ['Rank A: Real-Time Performance']?: Record<string, string>;
+  ['Rank B: 1 Day Performance']?: Record<string, string>;
 }
 
 // Cache
@@ -80,32 +63,39 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 // API URLs
 const FRED_BASE_URL = 'https://api.stlouisfed.org/fred/series/observations';
 const AV_BASE_URL = 'https://www.alphavantage.co/query';
-const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1/quote';
+const REQUEST_TIMEOUT_MS = 8000;
+const MAX_RETRIES = 2;
 
 // FRED Series (macro data - no rate limits)
 const FRED_SERIES: Record<string, { seriesId: string; displayName: string }> = {
+  SP500: { seriesId: 'SP500', displayName: 'S&P 500' },
+  NASDAQCOM: { seriesId: 'NASDAQCOM', displayName: 'Nasdaq Composite' },
+  DJIA: { seriesId: 'DJIA', displayName: 'Dow Jones' },
+  RU2000PR: { seriesId: 'RU2000PR', displayName: 'Russell 2000' },
   VIX: { seriesId: 'VIXCLS', displayName: 'VIX' },
-  TNX: { seriesId: 'DGS10', displayName: '10Y Treasury' },
+  DGS10: { seriesId: 'DGS10', displayName: '10Y Treasury' },
   DGS2: { seriesId: 'DGS2', displayName: '2Y Treasury' },
   DGS5: { seriesId: 'DGS5', displayName: '5Y Treasury' },
   DGS1: { seriesId: 'DGS1', displayName: '1Y Treasury' },
   BAMLH0A0HYM2: { seriesId: 'BAMLH0A0HYM2', displayName: 'HY OAS Spread' },
   T10YIE: { seriesId: 'T10YIE', displayName: '10Y Breakeven Inflation' },
   TEDRATE: { seriesId: 'TEDRATE', displayName: 'TED Spread' },
+  DTWEXBGS: { seriesId: 'DTWEXBGS', displayName: 'US Dollar Index' },
+  GOLD: { seriesId: 'GOLDAMGBD228NLBM', displayName: 'Gold Spot' },
+  OIL: { seriesId: 'DCOILWTICO', displayName: 'WTI Crude' },
 };
 
-// Sector names
-const SECTOR_INFO: Record<string, string> = {
-  XLK: 'Technology',
-  XLF: 'Financials',
-  XLI: 'Industrials',
-  XLE: 'Energy',
-  XLV: 'Healthcare',
-  XLP: 'Cons. Staples',
-  XLU: 'Utilities',
-  XLRE: 'Real Estate',
-  XLY: 'Cons. Disc.',
-  XLC: 'Communication',
+const ALPHA_SECTOR_MAP: Record<string, { ticker: string; name: string }> = {
+  'Information Technology': { ticker: 'XLK', name: 'Technology' },
+  Financials: { ticker: 'XLF', name: 'Financials' },
+  Industrials: { ticker: 'XLI', name: 'Industrials' },
+  Energy: { ticker: 'XLE', name: 'Energy' },
+  'Health Care': { ticker: 'XLV', name: 'Health Care' },
+  'Consumer Staples': { ticker: 'XLP', name: 'Cons. Staples' },
+  Utilities: { ticker: 'XLU', name: 'Utilities' },
+  'Real Estate': { ticker: 'XLRE', name: 'Real Estate' },
+  'Consumer Discretionary': { ticker: 'XLY', name: 'Cons. Disc.' },
+  'Communication Services': { ticker: 'XLC', name: 'Communication' },
 };
 
 // Utility
@@ -126,6 +116,38 @@ function getISOTimestamp(): string {
   return new Date().toISOString();
 }
 
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url: string, init?: RequestInit, retries = MAX_RETRIES): Promise<Response | null> {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(url, init);
+      if (response.ok) return response;
+      if (response.status >= 500 && attempt < retries) {
+        await wait(500 * Math.pow(2, attempt));
+        continue;
+      }
+      return response;
+    } catch (error) {
+      if (attempt >= retries) throw error;
+      await wait(500 * Math.pow(2, attempt));
+    }
+  }
+  return null;
+}
+
 // FRED API
 async function fetchFredSeries(seriesId: string, apiKey: string): Promise<{
   price: number;
@@ -136,8 +158,8 @@ async function fetchFredSeries(seriesId: string, apiKey: string): Promise<{
     const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const url = `${FRED_BASE_URL}?series_id=${seriesId}&api_key=${apiKey}&file_type=json&observation_start=${startDate}&observation_end=${endDate}&sort_order=desc&limit=10`;
 
-    const response = await fetch(url);
-    if (!response.ok) return null;
+    const response = await fetchWithRetry(url);
+    if (!response || !response.ok) return null;
 
     const data = await response.json() as FREDResponse;
     const validObs = data.observations?.filter((obs) => obs.value !== '.') ?? [];
@@ -153,65 +175,34 @@ async function fetchFredSeries(seriesId: string, apiKey: string): Promise<{
   }
 }
 
-// Alpha Vantage API (5 calls/min free tier - use for core indices)
-async function fetchAVQuote(symbol: string, apiKey: string): Promise<{
-  price: number;
-  previousClose: number;
-  change: number;
-  changePct: number;
-} | null> {
+async function fetchAVSectorPerformance(apiKey: string): Promise<Record<string, number> | null> {
   try {
-    const url = `${AV_BASE_URL}?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
-    const response = await fetch(url);
-    if (!response.ok) return null;
+    const url = `${AV_BASE_URL}?function=SECTOR&apikey=${apiKey}`;
+    const response = await fetchWithRetry(url);
+    if (!response || !response.ok) return null;
 
-    const data = await response.json() as AVQuoteResponse;
-    if (data.Note || data.Information) return null;
+    const data = await response.json() as AVSectorResponse;
+    const daily = data['Rank B: 1 Day Performance'] ?? data['Rank A: Real-Time Performance'];
+    if (!daily) return null;
 
-    const quote = data['Global Quote'];
-    if (!quote?.['05. price']) return null;
-
-    return {
-      price: parseFloat(quote['05. price']),
-      previousClose: parseFloat(quote['08. previous close']),
-      change: parseFloat(quote['09. change']),
-      changePct: parseFloat(quote['10. change percent']?.replace('%', '') || '0'),
-    };
-  } catch {
-    return null;
-  }
-}
-
-// Finnhub API (60 calls/min free tier - use for sectors and additional tickers)
-async function fetchFinnhubQuote(symbol: string, apiKey: string): Promise<{
-  price: number;
-  previousClose: number;
-  change: number;
-  changePct: number;
-} | null> {
-  try {
-    const url = `${FINNHUB_BASE_URL}?symbol=${symbol}&token=${apiKey}`;
-    const response = await fetch(url);
-    if (!response.ok) return null;
-
-    const data = await response.json() as FinnhubQuoteResponse;
-    if (!data.c || data.c === 0) return null;
-
-    return {
-      price: data.c,
-      previousClose: data.pc,
-      change: data.d,
-      changePct: data.dp,
-    };
+    const parsed: Record<string, number> = {};
+    for (const [sector, value] of Object.entries(daily)) {
+      const pct = parseFloat(value.replace('%', ''));
+      if (!Number.isNaN(pct)) {
+        parsed[sector] = pct;
+      }
+    }
+    return Object.keys(parsed).length > 0 ? parsed : null;
   } catch {
     return null;
   }
 }
 
 // Main data fetch
-async function fetchAllData(fredKey: string, avKey: string, finnhubKey: string): Promise<{
+async function fetchAllData(fredKey: string, avKey: string): Promise<{
   indicators: Record<string, Indicator>;
   warnings: string[];
+  sectors: Sector[];
 }> {
   const indicators: Record<string, Indicator> = {};
   const warnings: string[] = [];
@@ -242,69 +233,20 @@ async function fetchAllData(fredKey: string, avKey: string, finnhubKey: string):
     })
   );
 
-  // 2. Fetch Alpha Vantage - core indices only (5 calls max)
-  console.log('Fetching Alpha Vantage data...');
-  const avSymbols = ['SPY', 'QQQ', 'IWM', 'HYG', 'TLT'];
-  await Promise.all(
-    avSymbols.map(async (symbol) => {
-      const result = await fetchAVQuote(symbol, avKey);
-      if (result) {
-        indicators[symbol] = {
-          displayName: symbol,
-          ticker: symbol,
-          price: result.price,
-          previousClose: result.previousClose,
-          change: result.change,
-          changePct: result.changePct,
-          session: 'CLOSE',
-          asOfET: timestamp,
-          source: 'AV',
-        };
-      } else {
-        warnings.push(`AV: ${symbol}`);
-      }
-    })
-  );
-
-  // 3. Fetch Finnhub - sectors and additional tickers (60 calls/min)
-  console.log('Fetching Finnhub data...');
-  const finnhubSymbols = [
-    // Sector ETFs
-    'XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC',
-    // Additional useful tickers
-    'GLD', 'SLV', 'UUP', 'USO', 'LQD', 'SHY', 'RSP', 'DIA', 'VXX',
-  ];
-
-  await Promise.all(
-    finnhubSymbols.map(async (symbol) => {
-      const result = await fetchFinnhubQuote(symbol, finnhubKey);
-      if (result) {
-        indicators[symbol] = {
-          displayName: SECTOR_INFO[symbol] || symbol,
-          ticker: symbol,
-          price: result.price,
-          previousClose: result.previousClose,
-          change: result.change,
-          changePct: result.changePct,
-          session: 'CLOSE',
-          asOfET: timestamp,
-          source: 'FINNHUB',
-        };
-      } else {
-        warnings.push(`Finnhub: ${symbol}`);
-      }
-    })
-  );
+  // 2. Fetch Alpha Vantage sector performance (single call)
+  console.log('Fetching Alpha Vantage sector performance...');
+  const sectorPerf = await fetchAVSectorPerformance(avKey);
+  const sectors = buildSectorScores(sectorPerf, warnings);
 
   // 4. Calculate derived indicators
   console.log('Calculating derived indicators...');
 
   // Yield Spread (10Y - 2Y)
-  const tnx = indicators['TNX'];
+  const dgs10 = indicators['DGS10'];
   const dgs2 = indicators['DGS2'];
-  if (tnx?.price !== undefined && dgs2?.price !== undefined) {
-    const spread = tnx.price - dgs2.price;
-    const prevSpread = (tnx.previousClose ?? 0) - (dgs2.previousClose ?? 0);
+  if (dgs10?.price !== undefined && dgs2?.price !== undefined) {
+    const spread = dgs10.price - dgs2.price;
+    const prevSpread = (dgs10.previousClose ?? 0) - (dgs2.previousClose ?? 0);
     indicators['YIELD_SPREAD'] = {
       displayName: '10Y-2Y Spread',
       ticker: 'YIELD_SPREAD',
@@ -317,15 +259,15 @@ async function fetchAllData(fredKey: string, avKey: string, finnhubKey: string):
     };
   }
 
-  // RSP/SPY Ratio (equal weight vs cap weight - breadth indicator)
-  const rsp = indicators['RSP'];
-  const spy = indicators['SPY'];
-  if (rsp?.price && spy?.price) {
-    const ratio = rsp.price / spy.price;
-    const prevRatio = (rsp.previousClose ?? 1) / (spy.previousClose ?? 1);
-    indicators['RSP_SPY'] = {
-      displayName: 'RSP/SPY',
-      ticker: 'RSP_SPY',
+  // Small/Large Ratio (breadth proxy)
+  const russell = indicators['RU2000PR'];
+  const sp500 = indicators['SP500'];
+  if (russell?.price && sp500?.price) {
+    const ratio = russell.price / sp500.price;
+    const prevRatio = (russell.previousClose ?? 1) / (sp500.previousClose ?? 1);
+    indicators['SMALL_LARGE'] = {
+      displayName: 'Small/Large Ratio',
+      ticker: 'SMALL_LARGE',
       price: ratio,
       previousClose: prevRatio,
       change: ratio - prevRatio,
@@ -335,25 +277,7 @@ async function fetchAllData(fredKey: string, avKey: string, finnhubKey: string):
     };
   }
 
-  // HYG/LQD Ratio (credit risk appetite)
-  const hyg = indicators['HYG'];
-  const lqd = indicators['LQD'];
-  if (hyg?.price && lqd?.price) {
-    const ratio = hyg.price / lqd.price;
-    const prevRatio = (hyg.previousClose ?? 1) / (lqd.previousClose ?? 1);
-    indicators['HYG_LQD'] = {
-      displayName: 'HYG/LQD',
-      ticker: 'HYG_LQD',
-      price: ratio,
-      previousClose: prevRatio,
-      change: ratio - prevRatio,
-      changePct: prevRatio !== 0 ? ((ratio - prevRatio) / prevRatio) * 100 : 0,
-      session: 'CLOSE',
-      source: 'PROXY',
-    };
-  }
-
-  return { indicators, warnings };
+  return { indicators, warnings, sectors };
 }
 
 // Scoring
@@ -369,9 +293,9 @@ function calculateScores(indicators: Record<string, Indicator>): {
 } {
   const categoryScores: Record<string, { score: number; available: boolean; weight: number }> = {};
 
-  // Trend (SPY, QQQ, IWM, DIA)
+  // Trend (SP500, NASDAQ, DJIA, Russell 2000)
   let trendScore = 50, trendAvailable = false;
-  const trendTickers = ['SPY', 'QQQ', 'IWM', 'DIA'];
+  const trendTickers = ['SP500', 'NASDAQCOM', 'DJIA', 'RU2000PR'];
   const trendWeights = [0.4, 0.3, 0.15, 0.15];
   let trendTotal = 0, trendWeight = 0;
   trendTickers.forEach((t, i) => {
@@ -394,61 +318,56 @@ function calculateScores(indicators: Record<string, Indicator>): {
   }
   categoryScores['volTail'] = { score: volScore, available: volAvailable, weight: 0.20 };
 
-  // Credit (HYG, LQD, HY OAS)
+  // Credit (HY OAS, TED spread)
   let creditScore = 50, creditAvailable = false;
-  const hyg = indicators['HYG'];
   const hyOas = indicators['BAMLH0A0HYM2'];
-  const hygLqd = indicators['HYG_LQD'];
+  const ted = indicators['TEDRATE'];
   let creditTotal = 0, creditWeight = 0;
   if (hyOas?.price !== undefined) {
     creditTotal += normalize(hyOas.price, 250, 550, true) * 0.5;
     creditWeight += 0.5;
     creditAvailable = true;
   }
-  if (hyg?.changePct !== undefined) {
-    creditTotal += normalize(hyg.changePct, -1.5, 1.5) * 0.3;
-    creditWeight += 0.3;
+  if (ted?.price !== undefined) {
+    creditTotal += normalize(ted.price, 0.1, 0.6, true) * 0.5;
+    creditWeight += 0.5;
     creditAvailable = true;
-  }
-  if (hygLqd?.changePct !== undefined) {
-    creditTotal += normalize(hygLqd.changePct, -0.5, 0.5) * 0.2;
-    creditWeight += 0.2;
   }
   if (creditWeight > 0) creditScore = creditTotal / creditWeight;
   categoryScores['creditLiquidity'] = { score: creditScore, available: creditAvailable, weight: 0.20 };
 
-  // Rates (yield spread, TLT)
+  // Rates (yield spread, 10Y move)
   let ratesScore = 50, ratesAvailable = false;
   const yieldSpread = indicators['YIELD_SPREAD'];
-  const tlt = indicators['TLT'];
+  const dgs10 = indicators['DGS10'];
   let ratesTotal = 0, ratesWeight = 0;
   if (yieldSpread?.price !== undefined) {
     ratesTotal += normalize(yieldSpread.price, -0.5, 1.5) * 0.6;
     ratesWeight += 0.6;
     ratesAvailable = true;
   }
-  if (tlt?.changePct !== undefined) {
-    ratesTotal += normalize(tlt.changePct, -1.5, 1.5, true) * 0.4;
+  if (dgs10?.changePct !== undefined) {
+    ratesTotal += normalize(dgs10.changePct, -1.5, 1.5, true) * 0.4;
     ratesWeight += 0.4;
     ratesAvailable = true;
   }
   if (ratesWeight > 0) ratesScore = ratesTotal / ratesWeight;
   categoryScores['rates'] = { score: ratesScore, available: ratesAvailable, weight: 0.15 };
 
-  // Breadth (RSP/SPY ratio)
+  // Breadth (small/large ratio)
   let breadthScore = 50, breadthAvailable = false;
-  const rspSpy = indicators['RSP_SPY'];
-  if (rspSpy?.changePct !== undefined) {
-    breadthScore = normalize(rspSpy.changePct, -1, 1);
+  const smallLarge = indicators['SMALL_LARGE'];
+  if (smallLarge?.changePct !== undefined) {
+    breadthScore = normalize(smallLarge.changePct, -1, 1);
     breadthAvailable = true;
   }
   categoryScores['breadth'] = { score: breadthScore, available: breadthAvailable, weight: 0.10 };
 
-  // USD (UUP - inverse for risk assets)
+  // USD (trade-weighted index, inverse for risk assets)
   let usdScore = 50, usdAvailable = false;
-  const uup = indicators['UUP'];
-  if (uup?.changePct !== undefined) {
-    usdScore = normalize(uup.changePct, -1, 1, true);
+  const usd = indicators['DTWEXBGS'];
+  if (usd?.changePct !== undefined) {
+    usdScore = normalize(usd.changePct, -0.7, 0.7, true);
     usdAvailable = true;
   }
   categoryScores['usdFx'] = { score: usdScore, available: usdAvailable, weight: 0.10 };
@@ -498,125 +417,88 @@ function generateStatus(
     'NEUTRAL': 'Balanced approach. Monitor for directional signals.',
   };
 
-  const reasons: string[] = [];
-
-  // VIX analysis - ALWAYS show
-  const vix = indicators['VIX'];
-  if (vix?.price !== undefined) {
-    const desc = vix.price < 15 ? 'low' : vix.price > 25 ? 'elevated' : 'moderate';
-    reasons.push(`VIX at ${vix.price.toFixed(1)} - ${desc} fear levels`);
-  }
-
-  // Credit conditions - ALWAYS show
-  if (categoryScores['creditLiquidity']?.available) {
-    const desc = categoryScores['creditLiquidity'].score > 60 ? 'healthy' : categoryScores['creditLiquidity'].score < 40 ? 'stressed' : 'stable';
-    reasons.push(`Credit conditions appear ${desc}`);
-  }
-
-  // Yield curve - ALWAYS show
-  const yieldSpread = indicators['YIELD_SPREAD'];
-  if (yieldSpread?.price !== undefined) {
-    const desc = yieldSpread.price < 0 ? 'inverted (caution)' : yieldSpread.price > 0.5 ? 'steep (growth signal)' : 'flat';
-    reasons.push(`Yield curve is ${desc} at ${yieldSpread.price.toFixed(2)}%`);
-  }
-
-  // Market breadth - ALWAYS show
-  if (categoryScores['breadth']?.available) {
-    const desc = categoryScores['breadth'].score > 60 ? 'broad participation' : categoryScores['breadth'].score < 40 ? 'narrow leadership' : 'moderate';
-    reasons.push(`Market breadth shows ${desc}`);
-  }
-
-  // Index momentum (SPY, QQQ) - ALWAYS show
-  const spy = indicators['SPY'];
-  const qqq = indicators['QQQ'];
-  if (spy?.changePct !== undefined || qqq?.changePct !== undefined) {
-    const spyChg = spy?.changePct ?? 0;
-    const qqqChg = qqq?.changePct ?? 0;
-    const avgChg = (spyChg + qqqChg) / 2;
-    const direction = avgChg > 0 ? 'positive' : avgChg < 0 ? 'negative' : 'flat';
-    reasons.push(`Major indices showing ${direction} momentum (${avgChg > 0 ? '+' : ''}${avgChg.toFixed(2)}%)`);
-  }
-
-  // USD strength - ALWAYS show
-  const uup = indicators['UUP'];
-  if (uup?.changePct !== undefined) {
-    const desc = uup.changePct > 0.1 ? 'strengthening (headwind)' : uup.changePct < -0.1 ? 'weakening (tailwind)' : 'stable';
-    reasons.push(`US Dollar ${desc}`);
-  }
-
-  // Treasuries (TLT) - flight to safety indicator
-  const tlt = indicators['TLT'];
-  if (tlt?.changePct !== undefined) {
-    const desc = tlt.changePct > 0.3 ? 'bid (safety flows)' : tlt.changePct < -0.3 ? 'sold (risk appetite)' : 'stable';
-    reasons.push(`Long-term Treasuries ${desc}`);
-  }
-
-  // Small caps relative strength - ALWAYS show
-  const iwm = indicators['IWM'];
-  if (iwm?.changePct !== undefined && spy?.changePct !== undefined) {
-    const relStrength = iwm.changePct - spy.changePct;
-    const desc = relStrength > 0.15 ? 'outperforming (risk-on)' : relStrength < -0.15 ? 'underperforming (risk-off)' : 'tracking';
-    reasons.push(`Small caps ${desc} large caps`);
-  }
-
-  // High yield credit - ALWAYS show
-  const hyg = indicators['HYG'];
-  if (hyg?.changePct !== undefined) {
-    const desc = hyg.changePct > 0.1 ? 'strong (risk appetite)' : hyg.changePct < -0.1 ? 'weak (credit stress)' : 'steady';
-    reasons.push(`High yield bonds ${desc}`);
-  }
-
-  // Gold - ALWAYS show
-  const gld = indicators['GLD'];
-  if (gld?.changePct !== undefined) {
-    const desc = gld.changePct > 0.2 ? 'rising (safe haven bid)' : gld.changePct < -0.2 ? 'falling (risk appetite)' : 'stable';
-    reasons.push(`Gold ${desc}`);
-  }
-
-  // Tech leadership (QQQ vs SPY) - ALWAYS show
-  if (qqq?.changePct !== undefined && spy?.changePct !== undefined) {
-    const techLead = qqq.changePct - spy.changePct;
-    const desc = techLead > 0.1 ? 'leading (growth favored)' : techLead < -0.1 ? 'lagging (value rotation)' : 'in line';
-    reasons.push(`Tech sector ${desc}`);
-  }
-
-  // HY OAS Spread - ALWAYS show
-  const hyOas = indicators['BAMLH0A0HYM2'];
-  if (hyOas?.price !== undefined) {
-    const desc = hyOas.price < 350 ? 'tight (risk-on)' : hyOas.price > 500 ? 'wide (stress signal)' : 'normal';
-    reasons.push(`Credit spreads ${desc} at ${hyOas.price.toFixed(0)}bps`);
-  }
-
-  // Sector leadership summary
-  const sectorScores = calculateSectorScores(indicators);
-  const topSector = sectorScores.reduce((a, b) => a.score > b.score ? a : b);
-  const bottomSector = sectorScores.reduce((a, b) => a.score < b.score ? a : b);
-  if (topSector.score !== bottomSector.score) {
-    reasons.push(`Sector leader: ${topSector.name} (${topSector.score}), laggard: ${bottomSector.name} (${bottomSector.score})`);
-  }
-
-  // Overall score summary
-  const avgScore = Math.round((scores.short + scores.medium + scores.long) / 3);
-  reasons.push(`Composite score: ${avgScore}/100`);
+  const reasons = buildDriverReasons(categoryScores, indicators);
 
   return { label, plan: plans[label], reasons };
 }
 
-function calculateSectorScores(indicators: Record<string, Indicator>): Sector[] {
-  const sectorTickers = ['XLK', 'XLF', 'XLI', 'XLE', 'XLV', 'XLP', 'XLU', 'XLRE', 'XLY', 'XLC'];
+function buildDriverReasons(
+  categoryScores: Record<string, { score: number; available: boolean; weight: number }>,
+  indicators: Record<string, Indicator>
+): string[] {
+  const drivers: Array<{ key: string; score: number; text: string }> = [];
 
-  return sectorTickers.map(ticker => {
-    const sector = indicators[ticker];
-    const name = SECTOR_INFO[ticker] || ticker;
+  const vix = indicators['VIX'];
+  if (vix?.price !== undefined) {
+    const desc = vix.price < 15 ? 'low' : vix.price > 25 ? 'elevated' : 'moderate';
+    drivers.push({ key: 'volTail', score: categoryScores['volTail']?.score ?? 50, text: `VIX at ${vix.price.toFixed(1)} (${desc})` });
+  }
 
-    if (!sector?.changePct) {
+  const credit = categoryScores['creditLiquidity'];
+  if (credit?.available) {
+    const desc = credit.score > 60 ? 'healthy' : credit.score < 40 ? 'stressed' : 'stable';
+    drivers.push({ key: 'creditLiquidity', score: credit.score, text: `Credit conditions ${desc}` });
+  }
+
+  const yieldSpread = indicators['YIELD_SPREAD'];
+  if (yieldSpread?.price !== undefined) {
+    const desc = yieldSpread.price < 0 ? 'inverted' : yieldSpread.price > 0.5 ? 'steep' : 'flat';
+    drivers.push({ key: 'rates', score: categoryScores['rates']?.score ?? 50, text: `Yield curve ${desc} (${yieldSpread.price.toFixed(2)}%)` });
+  }
+
+  const breadth = categoryScores['breadth'];
+  if (breadth?.available) {
+    const desc = breadth.score > 60 ? 'broad participation' : breadth.score < 40 ? 'narrow leadership' : 'balanced';
+    drivers.push({ key: 'breadth', score: breadth.score, text: `Breadth shows ${desc}` });
+  }
+
+  const sp500 = indicators['SP500'];
+  const nasdaq = indicators['NASDAQCOM'];
+  if (sp500?.changePct !== undefined || nasdaq?.changePct !== undefined) {
+    const spChg = sp500?.changePct ?? 0;
+    const nasChg = nasdaq?.changePct ?? 0;
+    const avgChg = (spChg + nasChg) / 2;
+    const direction = avgChg > 0 ? 'positive' : avgChg < 0 ? 'negative' : 'flat';
+    drivers.push({ key: 'trend', score: categoryScores['trend']?.score ?? 50, text: `Major indices ${direction} (${avgChg > 0 ? '+' : ''}${avgChg.toFixed(2)}%)` });
+  }
+
+  const usd = indicators['DTWEXBGS'];
+  if (usd?.changePct !== undefined) {
+    const desc = usd.changePct > 0.1 ? 'strengthening' : usd.changePct < -0.1 ? 'weakening' : 'steady';
+    drivers.push({ key: 'usdFx', score: categoryScores['usdFx']?.score ?? 50, text: `US Dollar ${desc}` });
+  }
+
+  const gold = indicators['GOLD'];
+  if (gold?.changePct !== undefined) {
+    const desc = gold.changePct > 0.2 ? 'rising' : gold.changePct < -0.2 ? 'falling' : 'stable';
+    drivers.push({ key: 'gold', score: Math.abs(gold.changePct), text: `Gold ${desc}` });
+  }
+
+  return drivers
+    .sort((a, b) => Math.abs(b.score - 50) - Math.abs(a.score - 50))
+    .slice(0, 4)
+    .map(driver => driver.text);
+}
+
+function buildSectorScores(sectorPerf: Record<string, number> | null, warnings: string[]): Sector[] {
+  const fallback = Object.values(ALPHA_SECTOR_MAP).map(({ ticker, name }) => ({
+    ticker,
+    name,
+    score: 50,
+  }));
+
+  if (!sectorPerf) {
+    warnings.push('Alpha Vantage: sector data unavailable');
+    return fallback;
+  }
+
+  return Object.entries(ALPHA_SECTOR_MAP).map(([sectorName, { ticker, name }]) => {
+    const changePct = sectorPerf[sectorName];
+    if (changePct === undefined) {
       return { ticker, name, score: 50 };
     }
-
-    // Score based on daily change: +3% = 100, -3% = 0, 0% = 50
-    const score = Math.round(Math.max(0, Math.min(100, 50 + sector.changePct * 16.67)));
-
-    return { ticker, name, score, changePct: sector.changePct };
+    const score = Math.round(Math.max(0, Math.min(100, 50 + changePct * 16.67)));
+    return { ticker, name, score, changePct };
   });
 }
 
@@ -650,7 +532,7 @@ export async function handler(event: { httpMethod: string }): Promise<{
       console.log('Returning cached data');
       return {
         statusCode: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600, s-maxage=3600, stale-while-revalidate=300' },
         body: JSON.stringify({
           ...serverCache.data,
           currentTimeNY: getNYTimestamp(),
@@ -661,8 +543,6 @@ export async function handler(event: { httpMethod: string }): Promise<{
 
     const fredKey = process.env['FRED_API_KEY'];
     const avKey = process.env['ALPHAVANTAGE_API_KEY'];
-    const finnhubKey = process.env['FINNHUB_API_KEY'];
-
     if (!fredKey || !avKey) {
       return {
         statusCode: 500,
@@ -671,16 +551,10 @@ export async function handler(event: { httpMethod: string }): Promise<{
       };
     }
 
-    // Finnhub is optional but recommended
-    if (!finnhubKey) {
-      console.warn('FINNHUB_API_KEY not set - sector data will be limited');
-    }
-
     console.log('Fetching fresh market data...');
-    const { indicators, warnings } = await fetchAllData(fredKey, avKey, finnhubKey || '');
+    const { indicators, warnings, sectors } = await fetchAllData(fredKey, avKey);
     const { scores, categoryScores } = calculateScores(indicators);
     const status = generateStatus(scores, categoryScores, indicators);
-    const sectors = calculateSectorScores(indicators);
 
     const response: MarketDataResponse = {
       updatedAtNY: getNYTimestamp(),
@@ -698,7 +572,7 @@ export async function handler(event: { httpMethod: string }): Promise<{
 
     return {
       statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600, s-maxage=3600, stale-while-revalidate=300' },
       body: JSON.stringify(response),
     };
   } catch (error) {
