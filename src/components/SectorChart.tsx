@@ -40,6 +40,7 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
       {/* Bar chart container - fixed height for consistent scaling */}
       <div className="flex items-end gap-2 pb-3" style={{ height: `${MAX_BAR_HEIGHT + 50}px` }}>
         {displaySectors.map((sector) => {
+          const hasData = sector.available !== false;
           const score = typeof sector.score === 'number' && !isNaN(sector.score) ? sector.score : 50;
 
           // EXTREME height variance - piecewise function for dramatic differences
@@ -60,8 +61,8 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
           } else {
             heightPercent = 90 + ((score - 85) / 15) * 10; // 90-100%
           }
-          const barHeightPx = Math.max(8, Math.round((heightPercent / 100) * MAX_BAR_HEIGHT));
-          const barColor = getSectorBarColor(score);
+          const barHeightPx = hasData ? Math.max(8, Math.round((heightPercent / 100) * MAX_BAR_HEIGHT)) : 10;
+          const barColor = hasData ? getSectorBarColor(score) : '#2f3b33';
 
           return (
             <div
@@ -73,7 +74,7 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
                 className="text-xs font-bold mb-1.5 transition-colors"
                 style={{ color: barColor }}
               >
-                {Math.round(score)}
+                {hasData ? Math.round(score) : 'N/A'}
               </span>
 
               {/* Bar with explicit pixel height */}
@@ -90,6 +91,9 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
               <span className="text-[10px] text-gray-400 mt-2 font-medium">
                 {sector.ticker}
               </span>
+              {!hasData && (
+                <span className="text-[9px] text-gray-500 mt-1">N/A</span>
+              )}
             </div>
           );
         })}

@@ -11,10 +11,10 @@ export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
   const colors = getScoreColor(score);
 
   // MUCH taller arc with VERY generous internal space
-  const width = 150;
-  const height = 115;
+  const width = 160;
+  const height = 120;
   const strokeWidth = 10;
-  const radius = 58;
+  const radius = 60;
   const circumference = 2 * Math.PI * radius;
 
   // Arc calculation: 180 degrees (half circle)
@@ -23,13 +23,13 @@ export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
   const filledLength = arcLength * fillPercentage;
 
   const centerX = width / 2;
-  const centerY = height - 18;
+  const centerY = height - 20;
 
   return (
-    <div className="flex flex-col items-center py-2">
+    <div className="flex flex-col items-center py-1">
       {/* Label ABOVE the arc - more prominent */}
-      <div className="flex items-center gap-1.5 mb-3">
-        <span className="text-sm font-bold uppercase tracking-wider text-white">
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-lg font-bold uppercase tracking-wider text-white">
           {label}
         </span>
         {tooltip && <InfoTooltip content={tooltip} />}
@@ -76,14 +76,15 @@ export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
           className="absolute flex flex-col items-center"
           style={{
             left: '50%',
-            bottom: '25px',
+            bottom: '0px',
             transform: 'translateX(-50%)'
           }}
         >
           <span
-            className={`font-black ${colors.text} text-2xl leading-none`}
+            className="font-black text-2xl leading-none"
             style={{
-              textShadow: `0 0 25px ${colors.hex}90`
+              color: colors.hex,
+              textShadow: `0 0 20px ${colors.hex}80`
             }}
           >
             {Math.round(score)}

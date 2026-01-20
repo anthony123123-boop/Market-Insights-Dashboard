@@ -20,17 +20,17 @@ export function getScoreColor(score: number): ScoreColors {
   let r: number, g: number, b: number;
 
   if (clamped < 50) {
-    // Red to Yellow (0-50)
+    // Muted red to olive (0-50)
     const ratio = clamped / 50;
-    r = 239;
-    g = Math.round(68 + (171 * ratio)); // 68 to 239
-    b = 68;
+    r = Math.round(180 - (60 * ratio)); // 180 to 120
+    g = Math.round(80 + (90 * ratio)); // 80 to 170
+    b = Math.round(70 + (20 * ratio)); // 70 to 90
   } else {
-    // Yellow to Green (50-100)
+    // Olive to sage green (50-100)
     const ratio = (clamped - 50) / 50;
-    r = Math.round(239 - (205 * ratio)); // 239 to 34
-    g = Math.round(239 - (42 * ratio)); // 239 to 197
-    b = Math.round(68 - (26 * ratio)); // 68 to 42
+    r = Math.round(120 - (70 * ratio)); // 120 to 50
+    g = Math.round(170 + (40 * ratio)); // 170 to 210
+    b = Math.round(90 + (20 * ratio)); // 90 to 110
   }
 
   const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
@@ -79,20 +79,20 @@ export function getSectorBarColor(score: number): string {
 
   // More dramatic color thresholds
   if (clamped < 30) {
-    // Deep red for bearish
-    return '#ef4444';
+    // Muted red for bearish
+    return '#cf4c4c';
   } else if (clamped < 45) {
-    // Orange for weak
-    return '#f97316';
+    // Rust for weak
+    return '#c47c45';
   } else if (clamped < 55) {
-    // Yellow for neutral
-    return '#eab308';
+    // Amber for neutral
+    return '#bfa04a';
   } else if (clamped < 70) {
-    // Yellow-green for mildly bullish
-    return '#84cc16';
+    // Sage for mildly bullish
+    return '#8caf5a';
   } else {
-    // Bright green for bullish
-    return '#22c55e';
+    // Natural green for bullish
+    return '#4c8f6c';
   }
 }
 

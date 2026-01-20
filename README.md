@@ -18,12 +18,12 @@ A PC-first web dashboard that automatically pulls and analyzes market indicators
 This dashboard uses **only free APIs**:
 
 1. **FRED** (Federal Reserve Economic Data) - Primary source for macro data
-   - VIX, Treasury yields, credit spreads, economic indicators
+   - Equity indices, Treasury yields, credit spreads, macro indicators
    - 120 requests/minute rate limit
 
-2. **Alpha Vantage** - Secondary source for ETF prices
-   - ETF prices (SPY, QQQ, sectors, etc.)
-   - Free tier: 25 requests/day (handled with caching)
+2. **Alpha Vantage** - Sector performance feed (optional, enables sector chart data)
+   - Sector performance (single call)
+   - Free tier rate limits (handled with caching)
 
 ## Quick Start
 
@@ -57,12 +57,17 @@ This dashboard uses **only free APIs**:
    ALPHAVANTAGE_API_KEY=your_alphavantage_api_key_here
    ```
 
-5. Run development server:
+5. Run the UI locally:
    ```bash
-   npm run netlify-dev
+   npm run dev
    ```
 
-6. Open http://localhost:8888 in your browser
+6. (Optional) Run the full stack with Netlify Functions:
+   ```bash
+   npx netlify dev
+   ```
+
+7. Open http://localhost:8888 in your browser
 
 ### Production Build
 
@@ -136,12 +141,12 @@ The dashboard calculates scores for these categories:
 
 | Category | Weight | Data Sources |
 |----------|--------|--------------|
-| Trend | 25% | SPY, QQQ, IWM momentum |
+| Trend | 25% | S&P 500, Nasdaq, Dow, Russell 2000 momentum |
 | Volatility/Tail Risk | 20% | VIX level |
-| Credit/Liquidity | 15% | HY OAS, HYG, LQD, TLT |
-| Rates | 10% | 10Y yield, yield curve |
-| USD/FX | 10% | UUP (dollar) momentum |
-| Breadth | 20% | RSP/SPY, IWM/SPY ratios |
+| Credit/Liquidity | 20% | HY OAS, TED spread |
+| Rates | 15% | 10Y yield, yield curve |
+| USD/FX | 10% | Trade-weighted dollar index |
+| Breadth | 10% | Small/large ratio |
 
 ### Time Horizon Scores
 
@@ -153,23 +158,23 @@ The dashboard calculates scores for these categories:
 
 | Regime | Condition |
 |--------|-----------|
-| RISK-ON | Long ≥70 AND Short ≥60 |
-| RISK-OFF | Long ≤40 OR credit stressed |
-| CHOPPY | Short <40 AND Long >50 |
+| RISK-ON | Average score ≥65 AND Short ≥55 |
+| RISK-OFF | Average score ≤35 OR credit stressed |
+| CHOPPY | Short vs Long differ by >20 |
 | NEUTRAL | All other cases |
 
 ## Sector Attraction
 
 Each sector score (0-100) is based on:
 - Daily price change vs previous close
-- Formula: `score = clamp(50 + changePct * 10, 0, 100)`
-- Example: +1% change = score of 60
+- Formula: `score = clamp(50 + changePct * 16.67, 0, 100)`
+- Example: +1% change = score of ~67
 
 ## Caching Strategy
 
 ### Server-side (Netlify Function)
 - In-memory cache: 1 hour TTL
-- HTTP cache headers: `Cache-Control: public, max-age=3600`
+- HTTP cache headers: `Cache-Control: public, max-age=3600, s-maxage=3600`
 - Graceful fallback to stale cache on API errors
 
 ### Client-side (Browser)
@@ -182,9 +187,8 @@ Each sector score (0-100) is based on:
 The dashboard is designed to minimize API calls:
 
 1. **FRED First**: Uses FRED for all macro data (high rate limits)
-2. **Batch Requests**: Alpha Vantage calls are staggered
+2. **Single Alpha Vantage Call**: Sector performance uses one request per refresh
 3. **Caching**: 1-hour cache prevents repeated calls
-4. **Priority Order**: Essential tickers fetched first
 
 ## Tech Stack
 
@@ -198,7 +202,7 @@ The dashboard is designed to minimize API calls:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `FRED_API_KEY` | Yes | FRED API key for economic data |
-| `ALPHAVANTAGE_API_KEY` | Yes | Alpha Vantage API key for ETF prices |
+| `ALPHAVANTAGE_API_KEY` | No | Alpha Vantage API key for sector performance |
 
 ## License
 
