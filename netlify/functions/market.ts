@@ -239,11 +239,11 @@ async function fetchAllData(fredKey: string, avKey: string): Promise<{
   // 2. Fetch Alpha Vantage sector performance (single call)
   console.log('Fetching Alpha Vantage sector performance...');
   const sectorPerf = await fetchAVSectorPerformance(avKey);
-  const sectors = buildSectorScores(sectorPerf, warnings);
+  const sectors = buildSectorScores(indicators, warnings);
 
   // 4. Calculate derived indicators
   console.log('Calculating derived indicators...');
-  addProxyIndicators(indicators);
+ // addProxyIndicators(indicators);
 
   // Yield Spread (10Y - 2Y)
   const dgs10 = indicators['DGS10'];
@@ -266,6 +266,7 @@ async function fetchAllData(fredKey: string, avKey: string): Promise<{
   // Small/Large Ratio (breadth proxy)
   const russell = indicators['RU2000PR'];
   const sp500 = indicators['SP500'];
+const spy = sp500;
   if (russell?.price && sp500?.price) {
     const ratio = russell.price / sp500.price;
     const prevRatio = (russell.previousClose ?? 1) / (sp500.previousClose ?? 1);
@@ -504,33 +505,38 @@ function buildDriverReasons(
     .map(driver => driver.text);
 }
 
-function buildSectorScores(sectorPerf: Record<string, number> | null, warnings: string[]): Sector[] {
-  const fallback = Object.values(ALPHA_SECTOR_MAP).map(({ ticker, name }) => ({
-    ticker,
-    name,
-    score: 50,
-  }));
+function buildSectorScores(
+  indicators: Record<string, any>,
+  warnings: string[]
+): Sector[] {
+  const SECTOR_FRED_PROXY: Record<string, number | undefined> = {
+    XLK: indicators.NASDAQCOM?.changePct,
+    XLF: indicators.BAMLH0A0HYM2?.changePct,
+    XLE: indicators.OIL?.changePct,
+    XLI: indicators.DJIA?.changePct,
+    XLV: indicators.DGS10?.changePct,
+    XLP: indicators.DGS2?.changePct,
+    XLU: indicators.DGS10?.changePct,
+    XLRE: indicators.DGS10?.changePct,
+    XLY: indicators.SP500?.changePct,
+    XLC: indicators.NASDAQCOM?.changePct,
+  };
 
-  if (!sectorPerf) {
-    warnings.push('Alpha Vantage: sector data unavailable');
-    return fallback;
-  }
+  return Object.values(ALPHA_SECTOR_MAP).map(({ ticker, name }) => {
+    const raw = SECTOR_FRED_PROXY[ticker];
 
-  return Object.entries(ALPHA_SECTOR_MAP).map(([sectorName, { ticker, name }]) => {
-    const changePct = sectorPerf[sectorName];
-    if (changePct === undefined) {
-      return { ticker, name, score: 50 };
+    let score: number | null = null;
+
+    if (typeof raw === "number" && isFinite(raw)) {
+      score = Math.max(0, Math.min(100, 50 + raw * 10));
     }
-    const score = Math.round(Math.max(0, Math.min(100, 50 + changePct * 16.67)));
-    return { ticker, name, score, changePct };
+
+    return {
+      ticker,
+      name,
+      score,
+    };
   });
-
-  const missingCount = sectors.filter((sector) => sector.available === false).length;
-  if (missingCount > 0) {
-    warnings.push(`Sector proxies unavailable: ${missingCount}/${sectors.length}`);
-  }
-
-  return sectors;
 }
 
 // Main handler

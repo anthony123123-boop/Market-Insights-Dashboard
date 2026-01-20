@@ -76,7 +76,7 @@ export function ScoreGauge({ score, label, tooltip }: ScoreGaugeProps) {
           className="absolute flex flex-col items-center"
           style={{
             left: '50%',
-            bottom: '0px',
+            bottom: '10px',
             transform: 'translateX(-50%)'
           }}
         >
