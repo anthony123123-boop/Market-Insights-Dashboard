@@ -21,7 +21,7 @@ This dashboard uses **only free APIs**:
    - Equity indices, Treasury yields, credit spreads, macro indicators
    - 120 requests/minute rate limit
 
-2. **Alpha Vantage** - Sector performance feed (optional, enables sector chart data)
+2. **Alpha Vantage** - Sector performance feed
    - Sector performance (single call)
    - Free tier rate limits (handled with caching)
 
@@ -202,7 +202,7 @@ The dashboard is designed to minimize API calls:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `FRED_API_KEY` | Yes | FRED API key for economic data |
-| `ALPHAVANTAGE_API_KEY` | No | Alpha Vantage API key for sector performance |
+| `ALPHAVANTAGE_API_KEY` | Yes | Alpha Vantage API key for sector performance |
 
 ## License
 

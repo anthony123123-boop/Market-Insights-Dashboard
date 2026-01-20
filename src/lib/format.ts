@@ -40,18 +40,12 @@ export function formatScore(score: number): string {
  */
 export function getTickerDisplayName(ticker: string): string {
   const displayNames: Record<string, string> = {
-    SPY: 'S&P 500',
-    QQQ: 'Nasdaq 100',
-    IWM: 'Russell 2000',
-    RSP: 'Equal Weight S&P',
-    GLD: 'Gold',
     SP500: 'S&P 500',
     NASDAQCOM: 'Nasdaq Composite',
     DJIA: 'Dow Jones',
     RU2000PR: 'Russell 2000',
     VIX: 'VIX',
     DTWEXBGS: 'US Dollar Index',
-    UUP: 'US Dollar',
     GOLD: 'Gold',
     OIL: 'Oil',
     DGS10: '10Y Yield',
@@ -61,13 +55,7 @@ export function getTickerDisplayName(ticker: string): string {
     YIELD_SPREAD: '10Y-2Y Spread',
     T10YIE: 'Inflation Expect.',
     BAMLH0A0HYM2: 'HY OAS Spread',
-    BAMLC0A0CM: 'IG OAS Spread',
     TEDRATE: 'TED Spread',
-    HYG: 'High Yield',
-    LQD: 'Inv. Grade Corp',
-    HYG_LQD_RATIO: 'HY/IG Ratio',
-    RSP_SPY_RATIO: 'RSP/SPY Ratio',
-    IWM_SPY_RATIO: 'IWM/SPY Ratio',
     SMALL_LARGE: 'Small/Large Ratio',
   };
 

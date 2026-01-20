@@ -63,21 +63,21 @@ export interface MarketDataResponse {
 
 // Main indicators for the KEY INDICATORS section (shown prominently)
 export const MAIN_INDICATORS = [
-  'SPY', 'QQQ', 'IWM', 'GLD',              // Proxy-backed ETFs
-  'VIX',                                    // Volatility
-  'DGS10', 'YIELD_SPREAD',                  // Rates
-  'DTWEXBGS', 'GOLD',                       // USD / Commodities
+  'SP500', 'NASDAQCOM', 'DJIA', 'RU2000PR', // Core indices
+  'VIX',                                   // Volatility
+  'DGS10', 'YIELD_SPREAD',                 // Rates
+  'DTWEXBGS', 'GOLD',                      // USD / Commodities
 ] as const;
 
 // Indicator categories for VIEW MORE panel
 export const INDICATOR_CATEGORIES = {
-  CORE: ['SPY', 'QQQ', 'IWM', 'SP500', 'NASDAQCOM', 'DJIA', 'RU2000PR'],
+  CORE: ['SP500', 'NASDAQCOM', 'DJIA', 'RU2000PR'],
   VOL_TAIL: ['VIX', 'TEDRATE'],
-  CREDIT_LIQUIDITY: ['HYG', 'LQD', 'HYG_LQD_RATIO', 'BAMLH0A0HYM2', 'BAMLC0A0CM', 'TEDRATE'],
-  USD_FX: ['UUP', 'DTWEXBGS'],
+  CREDIT_LIQUIDITY: ['BAMLH0A0HYM2', 'TEDRATE'],
+  USD_FX: ['DTWEXBGS'],
   RATES_YIELD: ['DGS10', 'DGS2', 'DGS5', 'DGS1', 'YIELD_SPREAD', 'T10YIE'],
-  COMMODITIES: ['GLD', 'GOLD', 'OIL'],
-  BREADTH: ['RSP_SPY_RATIO', 'IWM_SPY_RATIO', 'SMALL_LARGE'],
+  COMMODITIES: ['GOLD', 'OIL'],
+  BREADTH: ['SMALL_LARGE'],
 } as const;
 
 // Sector ETFs
@@ -99,10 +99,6 @@ export const SECTOR_NAMES: Record<string, string> = {
 
 // Friendly names for indicators
 export const INDICATOR_NAMES: Record<string, string> = {
-  SPY: 'S&P 500',
-  QQQ: 'Nasdaq 100',
-  IWM: 'Russell 2000',
-  GLD: 'Gold',
   SP500: 'S&P 500',
   NASDAQCOM: 'Nasdaq Composite',
   DJIA: 'Dow Jones',
@@ -110,7 +106,6 @@ export const INDICATOR_NAMES: Record<string, string> = {
   VIX: 'VIX',
   TEDRATE: 'TED Spread',
   DTWEXBGS: 'US Dollar Index',
-  UUP: 'US Dollar',
   DGS10: '10Y Yield',
   DGS2: '2Y Yield',
   DGS5: '5Y Yield',
@@ -118,13 +113,7 @@ export const INDICATOR_NAMES: Record<string, string> = {
   YIELD_SPREAD: '10Y-2Y Spread',
   T10YIE: 'Inflation Expect.',
   BAMLH0A0HYM2: 'HY OAS Spread',
-  BAMLC0A0CM: 'IG OAS Spread',
-  HYG: 'High Yield',
-  LQD: 'Inv. Grade Corp',
-  HYG_LQD_RATIO: 'HY/IG Ratio',
   GOLD: 'Gold',
   OIL: 'Oil',
-  RSP_SPY_RATIO: 'RSP/SPY Ratio',
-  IWM_SPY_RATIO: 'IWM/SPY Ratio',
   SMALL_LARGE: 'Small/Large Ratio',
 };

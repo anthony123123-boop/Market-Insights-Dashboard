@@ -216,7 +216,7 @@ function App() {
 
         {/* Footer */}
         <footer className="mt-6 pt-4 border-t border-white/5 text-center text-[10px] text-gray-600">
-          <p>Data: FRED • Market data delayed • Not financial advice</p>
+          <p>Data: FRED • Alpha Vantage • Market data delayed • Not financial advice</p>
         </footer>
       </div>
     </div>

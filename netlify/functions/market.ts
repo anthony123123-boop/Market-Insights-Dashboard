@@ -9,8 +9,6 @@ interface Indicator {
   session: string;
   asOfET?: string;
   source: 'FRED' | 'AV' | 'PROXY';
-  isProxy?: boolean;
-  proxyNote?: string;
 }
 
 interface Sector {
@@ -50,6 +48,10 @@ interface FREDResponse {
   observations?: Array<{ date: string; value: string }>;
 }
 
+interface AVSectorResponse {
+  ['Rank A: Real-Time Performance']?: Record<string, string>;
+  ['Rank B: 1 Day Performance']?: Record<string, string>;
+}
 
 // Cache
 interface CacheEntry {
@@ -62,9 +64,9 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 // API URLs
 const FRED_BASE_URL = 'https://api.stlouisfed.org/fred/series/observations';
+const AV_BASE_URL = 'https://www.alphavantage.co/query';
 const REQUEST_TIMEOUT_MS = 8000;
 const MAX_RETRIES = 2;
-const OVERALL_FETCH_TIMEOUT_MS = 12000;
 
 // FRED Series (macro data - no rate limits)
 const FRED_SERIES: Record<string, { seriesId: string; displayName: string }> = {
@@ -86,20 +88,17 @@ const FRED_SERIES: Record<string, { seriesId: string; displayName: string }> = {
   OIL: { seriesId: 'DCOILWTICO', displayName: 'WTI Crude' },
 };
 
-const SECTOR_PROXY_RULES: Record<
-  string,
-  { name: string; source: string; mode: 'pct' | 'level'; min: number; max: number; invert?: boolean }
-> = {
-  XLK: { name: 'Technology', source: 'NASDAQCOM', mode: 'pct', min: -2, max: 2 },
-  XLF: { name: 'Financials', source: 'DGS10', mode: 'pct', min: -1.5, max: 1.5 },
-  XLI: { name: 'Industrials', source: 'SP500', mode: 'pct', min: -2, max: 2 },
-  XLE: { name: 'Energy', source: 'OIL', mode: 'pct', min: -3, max: 3 },
-  XLV: { name: 'Health Care', source: 'BAMLH0A0HYM2', mode: 'level', min: 250, max: 600, invert: true },
-  XLP: { name: 'Cons. Staples', source: 'SP500', mode: 'pct', min: -1.5, max: 1.5 },
-  XLU: { name: 'Utilities', source: 'DGS10', mode: 'level', min: 2, max: 5, invert: true },
-  XLRE: { name: 'Real Estate', source: 'DGS10', mode: 'level', min: 2, max: 5, invert: true },
-  XLY: { name: 'Cons. Disc.', source: 'SP500', mode: 'pct', min: -2, max: 2 },
-  XLC: { name: 'Communication', source: 'NASDAQCOM', mode: 'pct', min: -2, max: 2 },
+const ALPHA_SECTOR_MAP: Record<string, { ticker: string; name: string }> = {
+  'Information Technology': { ticker: 'XLK', name: 'Technology' },
+  Financials: { ticker: 'XLF', name: 'Financials' },
+  Industrials: { ticker: 'XLI', name: 'Industrials' },
+  Energy: { ticker: 'XLE', name: 'Energy' },
+  'Health Care': { ticker: 'XLV', name: 'Health Care' },
+  'Consumer Staples': { ticker: 'XLP', name: 'Cons. Staples' },
+  Utilities: { ticker: 'XLU', name: 'Utilities' },
+  'Real Estate': { ticker: 'XLRE', name: 'Real Estate' },
+  'Consumer Discretionary': { ticker: 'XLY', name: 'Cons. Disc.' },
+  'Communication Services': { ticker: 'XLC', name: 'Communication' },
 };
 
 // Utility
@@ -179,8 +178,31 @@ async function fetchFredSeries(seriesId: string, apiKey: string): Promise<{
   }
 }
 
+async function fetchAVSectorPerformance(apiKey: string): Promise<Record<string, number> | null> {
+  try {
+    const url = `${AV_BASE_URL}?function=SECTOR&apikey=${apiKey}`;
+    const response = await fetchWithRetry(url);
+    if (!response || !response.ok) return null;
+
+    const data = await response.json() as AVSectorResponse;
+    const daily = data['Rank B: 1 Day Performance'] ?? data['Rank A: Real-Time Performance'];
+    if (!daily) return null;
+
+    const parsed: Record<string, number> = {};
+    for (const [sector, value] of Object.entries(daily)) {
+      const pct = parseFloat(value.replace('%', ''));
+      if (!Number.isNaN(pct)) {
+        parsed[sector] = pct;
+      }
+    }
+    return Object.keys(parsed).length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 // Main data fetch
-async function fetchAllData(fredKey: string): Promise<{
+async function fetchAllData(fredKey: string, avKey: string): Promise<{
   indicators: Record<string, Indicator>;
   warnings: string[];
   sectors: Sector[];
@@ -214,7 +236,10 @@ async function fetchAllData(fredKey: string): Promise<{
     })
   );
 
-  const sectors = buildSectorScores(indicators, warnings);
+  // 2. Fetch Alpha Vantage sector performance (single call)
+  console.log('Fetching Alpha Vantage sector performance...');
+  const sectorPerf = await fetchAVSectorPerformance(avKey);
+  const sectors = buildSectorScores(sectorPerf, warnings);
 
   // 4. Calculate derived indicators
   console.log('Calculating derived indicators...');
@@ -253,23 +278,6 @@ async function fetchAllData(fredKey: string): Promise<{
       changePct: prevRatio !== 0 ? ((ratio - prevRatio) / prevRatio) * 100 : 0,
       session: 'CLOSE',
       source: 'PROXY',
-    };
-  }
-
-  const spy = indicators['SPY'];
-  const rsp = indicators['RSP'];
-  if (spy?.price && rsp?.price) {
-    const ratio = rsp.price / spy.price;
-    const prevRatio = (rsp.previousClose ?? 1) / (spy.previousClose ?? 1);
-    indicators['RSP_SPY_RATIO'] = {
-      displayName: 'RSP/SPY Ratio',
-      ticker: 'RSP_SPY_RATIO',
-      price: ratio,
-      previousClose: prevRatio,
-      change: ratio - prevRatio,
-      changePct: prevRatio !== 0 ? ((ratio - prevRatio) / prevRatio) * 100 : 0,
-      session: 'CLOSE',
-      source: 'PROXY',
       isProxy: true,
       proxyNote: 'Proxy ratio using SP500-based RSP proxy.',
     };
@@ -293,137 +301,7 @@ async function fetchAllData(fredKey: string): Promise<{
     };
   }
 
-  const hyg = indicators['HYG'];
-  const lqd = indicators['LQD'];
-  if (hyg?.price && lqd?.price) {
-    const ratio = hyg.price / lqd.price;
-    const prevRatio = (hyg.previousClose ?? 1) / (lqd.previousClose ?? 1);
-    indicators['HYG_LQD_RATIO'] = {
-      displayName: 'HYG/LQD Ratio',
-      ticker: 'HYG_LQD_RATIO',
-      price: ratio,
-      previousClose: prevRatio,
-      change: ratio - prevRatio,
-      changePct: prevRatio !== 0 ? ((ratio - prevRatio) / prevRatio) * 100 : 0,
-      session: 'CLOSE',
-      source: 'PROXY',
-      isProxy: true,
-      proxyNote: 'Proxy ratio using HY vs IG OAS spreads.',
-    };
-  }
-
   return { indicators, warnings, sectors };
-}
-
-function addProxyIndicator(
-  indicators: Record<string, Indicator>,
-  sourceKey: string,
-  proxyTicker: string,
-  displayName: string,
-  proxyNote: string
-): void {
-  if (indicators[proxyTicker]) return;
-  const source = indicators[sourceKey];
-  if (!source || source.price === undefined || source.previousClose === undefined) return;
-  indicators[proxyTicker] = {
-    displayName,
-    ticker: proxyTicker,
-    price: source.price,
-    previousClose: source.previousClose,
-    change: source.change,
-    changePct: source.changePct,
-    session: source.session,
-    asOfET: source.asOfET,
-    source: 'PROXY',
-    isProxy: true,
-    proxyNote,
-  };
-}
-
-function addProxyIndicators(indicators: Record<string, Indicator>): void {
-  addProxyIndicator(
-    indicators,
-    'SP500',
-    'SPY',
-    'S&P 500 (Proxy)',
-    'Proxy for SPY using FRED S&P 500 index.'
-  );
-  addProxyIndicator(
-    indicators,
-    'NASDAQCOM',
-    'QQQ',
-    'Nasdaq 100 (Proxy)',
-    'Proxy for QQQ using FRED Nasdaq Composite.'
-  );
-  addProxyIndicator(
-    indicators,
-    'RU2000PR',
-    'IWM',
-    'Russell 2000 (Proxy)',
-    'Proxy for IWM using FRED Russell 2000 index.'
-  );
-  addProxyIndicator(
-    indicators,
-    'SP500',
-    'RSP',
-    'Equal Weight S&P (Proxy)',
-    'Proxy for RSP using FRED S&P 500 index.'
-  );
-  addProxyIndicator(
-    indicators,
-    'GOLD',
-    'GLD',
-    'Gold (Proxy)',
-    'Proxy for GLD using FRED gold spot price.'
-  );
-  addProxyIndicator(
-    indicators,
-    'DTWEXBGS',
-    'UUP',
-    'US Dollar (Proxy)',
-    'Proxy for UUP using trade-weighted dollar index.'
-  );
-  addProxyIndicator(
-    indicators,
-    'BAMLH0A0HYM2',
-    'HYG',
-    'High Yield (Proxy)',
-    'Proxy for HYG using HY OAS spread.'
-  );
-  addProxyIndicator(
-    indicators,
-    'BAMLC0A0CM',
-    'LQD',
-    'Inv. Grade (Proxy)',
-    'Proxy for LQD using IG OAS spread.'
-  );
-}
-
-async function safeFetchAllData(
-  fredKey: string
-): Promise<{ indicators: Record<string, Indicator>; warnings: string[]; sectors: Sector[] }> {
-  const timeoutWarnings: string[] = [];
-  const timeoutFallback = new Promise<{ indicators: Record<string, Indicator>; warnings: string[]; sectors: Sector[] }>((resolve) => {
-    setTimeout(() => {
-      timeoutWarnings.push('Data fetch timed out');
-      resolve({
-        indicators: {},
-        warnings: timeoutWarnings,
-        sectors: buildSectorScores(null, timeoutWarnings),
-      });
-    }, OVERALL_FETCH_TIMEOUT_MS);
-  });
-
-  try {
-    return await Promise.race([fetchAllData(fredKey), timeoutFallback]);
-  } catch {
-    const warnings = ['Data fetch failed'];
-    return {
-      indicators: {},
-      warnings,
-      sectors: buildSectorScores(null, warnings),
-    };
-  }
 }
 
 // Scoring
@@ -586,18 +464,6 @@ function buildDriverReasons(
     drivers.push({ key: 'creditLiquidity', score: credit.score, text: `Credit conditions ${desc}` });
   }
 
-  const hyOas = indicators['BAMLH0A0HYM2'];
-  if (hyOas?.price !== undefined) {
-    const desc = hyOas.price < 350 ? 'tight' : hyOas.price > 500 ? 'wide' : 'normal';
-    drivers.push({ key: 'hyOas', score: credit?.score ?? 50, text: `HY spreads ${desc} (${hyOas.price.toFixed(0)}bps)` });
-  }
-
-  const ted = indicators['TEDRATE'];
-  if (ted?.price !== undefined) {
-    const desc = ted.price < 0.2 ? 'calm' : ted.price > 0.4 ? 'elevated' : 'steady';
-    drivers.push({ key: 'ted', score: credit?.score ?? 50, text: `TED spread ${desc} (${ted.price.toFixed(2)}%)` });
-  }
-
   const yieldSpread = indicators['YIELD_SPREAD'];
   if (yieldSpread?.price !== undefined) {
     const desc = yieldSpread.price < 0 ? 'inverted' : yieldSpread.price > 0.5 ? 'steep' : 'flat';
@@ -611,13 +477,13 @@ function buildDriverReasons(
   }
 
   const sp500 = indicators['SP500'];
-  if (sp500?.changePct !== undefined) {
-    drivers.push({ key: 'sp500', score: categoryScores['trend']?.score ?? 50, text: `S&P 500 ${sp500.changePct > 0 ? '+' : ''}${sp500.changePct.toFixed(2)}%` });
-  }
-
   const nasdaq = indicators['NASDAQCOM'];
-  if (nasdaq?.changePct !== undefined) {
-    drivers.push({ key: 'nasdaq', score: categoryScores['trend']?.score ?? 50, text: `Nasdaq ${nasdaq.changePct > 0 ? '+' : ''}${nasdaq.changePct.toFixed(2)}%` });
+  if (sp500?.changePct !== undefined || nasdaq?.changePct !== undefined) {
+    const spChg = sp500?.changePct ?? 0;
+    const nasChg = nasdaq?.changePct ?? 0;
+    const avgChg = (spChg + nasChg) / 2;
+    const direction = avgChg > 0 ? 'positive' : avgChg < 0 ? 'negative' : 'flat';
+    drivers.push({ key: 'trend', score: categoryScores['trend']?.score ?? 50, text: `Major indices ${direction} (${avgChg > 0 ? '+' : ''}${avgChg.toFixed(2)}%)` });
   }
 
   const usd = indicators['DTWEXBGS'];
@@ -632,62 +498,31 @@ function buildDriverReasons(
     drivers.push({ key: 'gold', score: Math.abs(gold.changePct), text: `Gold ${desc}` });
   }
 
-  const oil = indicators['OIL'];
-  if (oil?.changePct !== undefined) {
-    drivers.push({ key: 'oil', score: Math.abs(oil.changePct), text: `Oil ${oil.changePct > 0 ? '+' : ''}${oil.changePct.toFixed(2)}%` });
-  }
-
-  const infl = indicators['T10YIE'];
-  if (infl?.price !== undefined) {
-    const desc = infl.price > 2.7 ? 'rising' : infl.price < 2 ? 'cooling' : 'stable';
-    drivers.push({ key: 'infl', score: 50, text: `Inflation expectations ${desc}` });
-  }
-
-  const tenYear = indicators['DGS10'];
-  if (tenYear?.price !== undefined) {
-    drivers.push({ key: 'dgs10', score: 50, text: `10Y yield at ${tenYear.price.toFixed(2)}%` });
-  }
-
-  const rspSpy = indicators['RSP_SPY_RATIO'];
-  if (rspSpy?.changePct !== undefined) {
-    drivers.push({ key: 'rspSpy', score: categoryScores['breadth']?.score ?? 50, text: `Breadth (RSP/SPY) ${rspSpy.changePct > 0 ? '+' : ''}${rspSpy.changePct.toFixed(2)}%` });
-  }
-
-  const iwmSpy = indicators['IWM_SPY_RATIO'];
-  if (iwmSpy?.changePct !== undefined) {
-    drivers.push({ key: 'iwmSpy', score: categoryScores['breadth']?.score ?? 50, text: `Small caps vs large ${iwmSpy.changePct > 0 ? '+' : ''}${iwmSpy.changePct.toFixed(2)}%` });
-  }
-
-  const hygLqd = indicators['HYG_LQD_RATIO'];
-  if (hygLqd?.changePct !== undefined) {
-    drivers.push({ key: 'hygLqd', score: credit?.score ?? 50, text: `Credit risk ${hygLqd.changePct > 0 ? '+' : ''}${hygLqd.changePct.toFixed(2)}%` });
-  }
-
   return drivers
     .sort((a, b) => Math.abs(b.score - 50) - Math.abs(a.score - 50))
-    .slice(0, 10)
+    .slice(0, 4)
     .map(driver => driver.text);
 }
 
-function buildSectorScores(indicators: Record<string, Indicator>, warnings: string[]): Sector[] {
-  const sectors = Object.entries(SECTOR_PROXY_RULES).map(([ticker, rule]) => {
-    const indicator = indicators[rule.source];
-    if (!indicator || indicator.price === undefined) {
-      return { ticker, name: rule.name, score: 50, available: false, proxy: rule.source };
+function buildSectorScores(sectorPerf: Record<string, number> | null, warnings: string[]): Sector[] {
+  const fallback = Object.values(ALPHA_SECTOR_MAP).map(({ ticker, name }) => ({
+    ticker,
+    name,
+    score: 50,
+  }));
+
+  if (!sectorPerf) {
+    warnings.push('Alpha Vantage: sector data unavailable');
+    return fallback;
+  }
+
+  return Object.entries(ALPHA_SECTOR_MAP).map(([sectorName, { ticker, name }]) => {
+    const changePct = sectorPerf[sectorName];
+    if (changePct === undefined) {
+      return { ticker, name, score: 50 };
     }
-
-    const scoreBase = rule.mode === 'pct'
-      ? normalize(indicator.changePct ?? 0, rule.min, rule.max, rule.invert)
-      : normalize(indicator.price, rule.min, rule.max, rule.invert);
-
-    return {
-      ticker,
-      name: rule.name,
-      score: Math.round(scoreBase),
-      changePct: indicator.changePct,
-      available: true,
-      proxy: rule.source,
-    };
+    const score = Math.round(Math.max(0, Math.min(100, 50 + changePct * 16.67)));
+    return { ticker, name, score, changePct };
   });
 
   const missingCount = sectors.filter((sector) => sector.available === false).length;
@@ -738,7 +573,8 @@ export async function handler(event: { httpMethod: string }): Promise<{
     }
 
     const fredKey = process.env['FRED_API_KEY'];
-    if (!fredKey) {
+    const avKey = process.env['ALPHAVANTAGE_API_KEY'];
+    if (!fredKey || !avKey) {
       return {
         statusCode: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -747,23 +583,7 @@ export async function handler(event: { httpMethod: string }): Promise<{
     }
 
     console.log('Fetching fresh market data...');
-    const { indicators, warnings, sectors } = await safeFetchAllData(fredKey);
-    if (Object.keys(indicators).length === 0 && serverCache) {
-      return {
-        statusCode: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...serverCache.data,
-          currentTimeNY: getNYTimestamp(),
-          cache: {
-            state: 'STALE',
-            ageSeconds: Math.floor((Date.now() - serverCache.timestamp) / 1000),
-            timestamp: serverCache.data.cache.timestamp,
-          },
-          warnings: [...serverCache.data.warnings, ...warnings, 'Using stale cache'],
-        }),
-      };
-    }
+    const { indicators, warnings, sectors } = await fetchAllData(fredKey, avKey);
     const { scores, categoryScores } = calculateScores(indicators);
     const status = generateStatus(scores, categoryScores, indicators);
 
