@@ -18,7 +18,7 @@ const SECTOR_TOOLTIP = `Sector Attraction scores (0-100):
 export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) {
   // Sort sectors if requested
   const displaySectors = sortByScore
-    ? [...sectors].sort((a, b) => b.score - a.score)
+    ? [...sectors].sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity))
     : sectors;
 
   // Max bar height in pixels
@@ -29,17 +29,18 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
+          <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wider">
             Sector Attraction
           </h3>
           <InfoTooltip content={SECTOR_TOOLTIP} />
         </div>
-        <span className="text-xs text-gray-500">0-100</span>
+        <span className="text-xs text-slate-500">0-100</span>
       </div>
 
       {/* Bar chart container - fixed height for consistent scaling */}
       <div className="flex items-end gap-2 pb-3" style={{ height: `${MAX_BAR_HEIGHT + 50}px` }}>
         {displaySectors.map((sector) => {
+          const hasData = sector.available !== false;
           const score = typeof sector.score === 'number' && !isNaN(sector.score) ? sector.score : 50;
 
           // EXTREME height variance - piecewise function for dramatic differences
@@ -60,8 +61,8 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
           } else {
             heightPercent = 90 + ((score - 85) / 15) * 10; // 90-100%
           }
-          const barHeightPx = Math.max(8, Math.round((heightPercent / 100) * MAX_BAR_HEIGHT));
-          const barColor = getSectorBarColor(score);
+          const barHeightPx = hasData ? Math.max(8, Math.round((heightPercent / 100) * MAX_BAR_HEIGHT)) : 10;
+          const barColor = hasData ? getSectorBarColor(score) : '#475569';
 
           return (
             <div
@@ -73,7 +74,7 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
                 className="text-xs font-bold mb-1.5 transition-colors"
                 style={{ color: barColor }}
               >
-                {Math.round(score)}
+                {hasData ? Math.round(score) : 'N/A'}
               </span>
 
               {/* Bar with explicit pixel height */}
@@ -87,9 +88,12 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
               />
 
               {/* Ticker label */}
-              <span className="text-[10px] text-gray-400 mt-2 font-medium">
+              <span className="text-[10px] text-slate-400 mt-2 font-medium">
                 {sector.ticker}
               </span>
+              {!hasData && (
+                <span className="text-[9px] text-slate-500 mt-1">N/A</span>
+              )}
             </div>
           );
         })}
@@ -98,16 +102,16 @@ export function SectorChart({ sectors, sortByScore = false }: SectorChartProps) 
       {/* Legend */}
       <div className="flex items-center justify-center gap-6 pt-3 border-t border-white/10">
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded" style={{ backgroundColor: '#22c55e', boxShadow: '0 0 8px #22c55e60' }} />
-          <span className="text-[10px] text-gray-400">Bullish (70+)</span>
+          <div className="w-3 h-3 rounded" style={{ backgroundColor: '#2fd173', boxShadow: '0 0 8px #2fd17370' }} />
+          <span className="text-[10px] text-slate-400">Bullish (70+)</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded" style={{ backgroundColor: '#eab308', boxShadow: '0 0 8px #eab30860' }} />
-          <span className="text-[10px] text-gray-400">Neutral</span>
+          <div className="w-3 h-3 rounded" style={{ backgroundColor: '#c7a468', boxShadow: '0 0 8px #c7a46860' }} />
+          <span className="text-[10px] text-slate-400">Neutral</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded" style={{ backgroundColor: '#ef4444', boxShadow: '0 0 8px #ef444460' }} />
-          <span className="text-[10px] text-gray-400">Bearish (&lt;30)</span>
+          <div className="w-3 h-3 rounded" style={{ backgroundColor: '#d06a6a', boxShadow: '0 0 8px #d06a6a60' }} />
+          <span className="text-[10px] text-slate-400">Bearish (&lt;30)</span>
         </div>
       </div>
     </FrostedCard>

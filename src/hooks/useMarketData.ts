@@ -69,6 +69,17 @@ export function useMarketData(): UseMarketDataResult {
       const response = await fetch(apiUrl);
 
       if (!response.ok) {
+        let bodyText = '';
+        try {
+          bodyText = await response.text();
+        } catch {
+          bodyText = 'Unable to read response body.';
+        }
+        console.error('Market data fetch failed', {
+          status: response.status,
+          statusText: response.statusText,
+          body: bodyText,
+        });
         throw new Error(`API error: ${response.status}`);
       }
 
@@ -80,7 +91,11 @@ export function useMarketData(): UseMarketDataResult {
       // Save to local cache
       setLocalCache(result);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch data';
+      const rawMessage = err instanceof Error ? err.message : 'Request failed';
+      console.error('Market data fetch failed:', err);
+      const errorMessage = rawMessage.includes('Failed to fetch')
+        ? 'Unable to reach market data. Please try again shortly.'
+        : 'Market data unavailable. Please retry.';
       setError(errorMessage);
 
       // Try to use local cache as fallback

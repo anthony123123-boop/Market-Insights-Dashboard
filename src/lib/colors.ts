@@ -20,17 +20,17 @@ export function getScoreColor(score: number): ScoreColors {
   let r: number, g: number, b: number;
 
   if (clamped < 50) {
-    // Red to Yellow (0-50)
+    // Rich red to warm olive (0-50)
     const ratio = clamped / 50;
-    r = 239;
-    g = Math.round(68 + (171 * ratio)); // 68 to 239
-    b = 68;
+    r = Math.round(230 - (90 * ratio)); // 230 to 140
+    g = Math.round(60 + (120 * ratio)); // 60 to 180
+    b = Math.round(50 + (20 * ratio)); // 50 to 70
   } else {
-    // Yellow to Green (50-100)
+    // Olive to vibrant green (50-100)
     const ratio = (clamped - 50) / 50;
-    r = Math.round(239 - (205 * ratio)); // 239 to 34
-    g = Math.round(239 - (42 * ratio)); // 239 to 197
-    b = Math.round(68 - (26 * ratio)); // 68 to 42
+    r = Math.round(140 - (110 * ratio)); // 140 to 30
+    g = Math.round(180 + (70 * ratio)); // 180 to 250
+    b = Math.round(70 + (20 * ratio)); // 70 to 90
   }
 
   const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
@@ -39,18 +39,18 @@ export function getScoreColor(score: number): ScoreColors {
   // Determine text class based on score
   let text: string;
   if (clamped <= 35) {
-    text = 'text-red-400';
+    text = 'text-rose-300';
   } else if (clamped <= 65) {
-    text = 'text-yellow-400';
+    text = 'text-amber-200';
   } else {
-    text = 'text-green-400';
+    text = 'text-emerald-300';
   }
 
   return {
     hex,
     rgb,
     text,
-    glow: `0 0 20px rgba(${rgb}, 0.5)`,
+    glow: `0 0 30px rgba(${rgb}, 0.7)`,
   };
 }
 
@@ -79,20 +79,20 @@ export function getSectorBarColor(score: number): string {
 
   // More dramatic color thresholds
   if (clamped < 30) {
-    // Deep red for bearish
-    return '#ef4444';
+    // Muted red for bearish
+    return '#d06a6a';
   } else if (clamped < 45) {
-    // Orange for weak
-    return '#f97316';
+    // Rust for weak
+    return '#c58b53';
   } else if (clamped < 55) {
-    // Yellow for neutral
-    return '#eab308';
+    // Amber for neutral
+    return '#c7a468';
   } else if (clamped < 70) {
-    // Yellow-green for mildly bullish
-    return '#84cc16';
+    // Sage for mildly bullish
+    return '#7fbf7a';
   } else {
-    // Bright green for bullish
-    return '#22c55e';
+    // Natural green for bullish
+    return '#2fd173';
   }
 }
 
