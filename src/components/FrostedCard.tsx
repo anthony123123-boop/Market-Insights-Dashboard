@@ -1,4 +1,4 @@
-﻿import { ReactNode } from 'react';
+import { ReactNode } from 'react';
 
 interface FrostedCardProps {
   children: ReactNode;
@@ -45,5 +45,7 @@ export function FrostedCard({ children, className = '', glowColor, noPadding = f
 }
 
 export default FrostedCard;
+
+
 
 
