@@ -22,15 +22,15 @@ export function getScoreColor(score: number): ScoreColors {
   if (clamped < 50) {
     // Muted red to olive (0-50)
     const ratio = clamped / 50;
-    r = Math.round(180 - (60 * ratio)); // 180 to 120
-    g = Math.round(80 + (90 * ratio)); // 80 to 170
+    r = Math.round(255); // 180 to 120
+    g = Math.round(45 + (169 * ratio)); // 80 to 170
     b = Math.round(70 + (20 * ratio)); // 70 to 90
   } else {
     // Olive to sage green (50-100)
     const ratio = (clamped - 50) / 50;
-    r = Math.round(120 - (70 * ratio)); // 120 to 50
-    g = Math.round(170 + (40 * ratio)); // 170 to 210
-    b = Math.round(90 + (20 * ratio)); // 90 to 110
+    r = Math.round(255 - (205 * ratio)); // 120 to 50
+    g = Math.round(214 + (41 * ratio)); // 170 to 210
+    b = Math.round(10 + (65 * ratio)); // 90 to 110
   }
 
   const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
@@ -50,7 +50,7 @@ export function getScoreColor(score: number): ScoreColors {
     hex,
     rgb,
     text,
-    glow: `0 0 20px rgba(${rgb}, 0.5)`,
+    glow: `0 0 42px rgba(${rgb}, 0.85)`,
   };
 }
 

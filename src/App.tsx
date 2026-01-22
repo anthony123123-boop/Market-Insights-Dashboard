@@ -91,7 +91,7 @@ function App() {
   return (
     <div className="min-h-screen bg-[#0b0f14] text-white">
       {/* Background gradient */}
-      <div className="fixed inset-0 bg-gradient-to-br from-emerald-950/25 via-transparent to-slate-950/20 pointer-events-none" />
+      <div className="fixed inset-0 bg-gradient-to-br from-neutral-950/70 via-neutral-900/35 to-emerald-950/15 pointer-events-none" />
 
       <div className="relative max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
