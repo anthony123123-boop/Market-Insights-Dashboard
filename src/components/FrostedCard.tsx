@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+﻿import { ReactNode } from 'react';
 
 interface FrostedCardProps {
   children: ReactNode;
@@ -13,15 +13,15 @@ export function FrostedCard({ children, className = '', glowColor, noPadding = f
       className={`
         relative overflow-hidden rounded-xl
         bg-gradient-to-br from-slate-800/60 to-slate-900/80
-        backdrop-blur-2xl
+        backdrop-blur-3xl
         border border-emerald-500/10
         ${noPadding ? '' : 'p-4'}
         ${className}
       `}
       style={{
         boxShadow: glowColor
-          ? `0 0 50px ${glowColor}25, 0 8px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08)`
-          : '0 8px 24px rgba(0,0,0,0.45), 0 0 40px rgba(34,197,94,0.08), inset 0 1px 0 rgba(255,255,255,0.08)',
+          ? `0 0 50px ${glowColor}25, 0 8px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.10)`
+          : '0 8px 24px rgba(0,0,0,0.45), 0 0 34px rgba(34,197,94,0.18), inset 0 1px 0 rgba(255,255,255,0.10)',
       }}
     >
       {/* Top highlight */}
@@ -45,3 +45,5 @@ export function FrostedCard({ children, className = '', glowColor, noPadding = f
 }
 
 export default FrostedCard;
+
+
